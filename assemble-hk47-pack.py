@@ -31,7 +31,10 @@ States. The theme names five: `idle`, `idle_alt`, `attentive`, `thinking`,
 alternates Idle and IdleAlt on every entry to idle, which is the stance switch
 asked for and costs nothing. `question`, `permission` and `combat` are written
 to disk but not referenced: they need `AnimState` variants that do not exist
-yet, and an unknown key in theme.toml warns on every launch.
+yet, and an unknown key in theme.toml warns on every launch. Note that the
+`[readouts]` block names two of those same words; that is a coincidence of
+subject matter, not a wiring. The readouts are wall consoles that count other
+sessions, and they drive no animation at all.
 """
 
 import colorsys
@@ -59,11 +62,28 @@ FLOOR_Y = BORDER + (ROOM_FEET_Y - ROOM_CROP[1])  # -> 236 in backdrop coordinate
 
 # Figure size as a multiple of config.sprite.size. 4/3 against a sprite.size of
 # 96 works out to exactly one screen pixel per sprite pixel, so the *droid* is at
-# native density and only the room is reduced — the crispness ends up where the
+# native density and only the room is reduced: the crispness ends up where the
 # eye actually goes. Bigger also means nearer: FLOOR_Y moved down with it, or a
 # 33% taller figure standing on the old floor line reads as a giant at the far
 # end of the corridor rather than as a droid a step closer to the camera.
 SPRITE_SCALE = 4 / 3
+
+# --- Attention readouts. Three of the corridor's own bezelled screens double as
+# --- the companion's counters: a live count repaints the glass inside one, and a
+# --- dead one leaves the room exactly as painted. Held in the ORIGINAL room's
+# --- coordinates and translated on the way out, the same trick FLOOR_Y uses, so
+# --- a change to ROOM_CROP or BORDER moves them instead of stranding them.
+# --- Rects are (x0, y0, x1, y1) with x1/y1 exclusive, measured off the room's own
+# --- luminance map rather than eyeballed. Position is the identity: that panel
+# --- always means that counter, which is what makes icons unnecessary.
+ROOM_READOUTS = {
+    # tan notice board across the corridor, at his shoulder, the largest face
+    "question": ((214, 123, 227, 144), (214, 56, 46)),
+    # bright glyph screen on the left wall
+    "permission": ((116, 112, 127, 128), (226, 158, 44)),
+    # small two-cell panel directly beneath it, the least urgent and the smallest
+    "waiting": ((115, 130, 128, 145), (96, 196, 190)),
+}
 
 # Rows above the bounding box's bottom edge that count as "feet". Wide enough to
 # catch both soles in a mid-stride frame, short enough to exclude the knees.
@@ -87,7 +107,7 @@ STATES = {
 # 40 that `create-character-state` would have cost.
 #
 # Each strip is two frames: forward, then turned. sprite.rs plays it once and
-# holds, so the turn is a single-frame snap. That is deliberate — a droid re-aims
+# holds, so the turn is a single-frame snap. That is deliberate: a droid re-aims
 # its head, it does not ease into a glance.
 SCAN_POSES = {
     "scan_l": "south-west",
@@ -97,7 +117,7 @@ SCAN_DIVISOR = 3
 # Rows below the crown that count as head. Measured off the 122px figure: the
 # neck joint sits at about 26.
 HEAD_ROWS = 26
-# Assembled and shipped, but not yet named in theme.toml — see the docstring.
+# Assembled and shipped, but not yet named in theme.toml: see the docstring.
 # combat frame 8 is the muzzle flash, and the brief says he decides not to shoot.
 EXTRA = {
     "question": ("question", 2, ()),
@@ -282,7 +302,24 @@ def theme_toml(counts: dict[str, int]) -> str:
         "[backdrop]",
         'file = "backdrop.png"',
         "",
+        "# Wall consoles that double as attention counters. Rects are in backdrop",
+        "# pixels, x1/y1 exclusive; badge.rs repaints the glass inside them when a",
+        "# count is live and draws nothing at all when it is zero.",
     ]
+    for key, (rect, colour) in ROOM_READOUTS.items():
+        x0, y0, x1, y1 = rect
+        bd_rect = (
+            x0 - ROOM_CROP[0] + BORDER,
+            y0 - ROOM_CROP[1] + BORDER,
+            x1 - ROOM_CROP[0] + BORDER,
+            y1 - ROOM_CROP[1] + BORDER,
+        )
+        lines += [
+            f"[readouts.{key}]",
+            f"rect = [{', '.join(str(v) for v in bd_rect)}]",
+            f"colour = [{', '.join(str(v) for v in colour)}]",
+            "",
+        ]
     for state in SCAN_POSES:
         lines += [
             f"[animations.{state}]",
@@ -332,7 +369,7 @@ def main() -> None:
     # the geometry change, so it is carried through rather than rebuilt.
     wood = OUT / "chat_wood.png"
     if not wood.is_file():
-        print(f"warn: {wood} missing — run build-hk47-sprites.py to regenerate it", file=sys.stderr)
+        print(f"warn: {wood} missing: run build-hk47-sprites.py to regenerate it", file=sys.stderr)
 
     (OUT / "theme.toml").write_text(theme_toml(counts))
     print(f"theme.toml  frame={FRAME} feet_y={FEET_Y} floor_y={FLOOR_Y} scale=1.0")

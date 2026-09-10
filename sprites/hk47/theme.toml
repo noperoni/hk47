@@ -17,6 +17,21 @@ border = 4
 [backdrop]
 file = "backdrop.png"
 
+# Wall consoles that double as attention counters. Rects are in backdrop
+# pixels, x1/y1 exclusive; badge.rs repaints the glass inside them when a
+# count is live and draws nothing at all when it is zero.
+[readouts.question]
+rect = [178, 95, 191, 116]
+colour = [214, 56, 46]
+
+[readouts.permission]
+rect = [80, 84, 91, 100]
+colour = [226, 158, 44]
+
+[readouts.waiting]
+rect = [79, 102, 92, 117]
+colour = [96, 196, 190]
+
 [animations.scan_l]
 file = "scan_l.png"
 frames = 2

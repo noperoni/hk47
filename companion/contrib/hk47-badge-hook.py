@@ -5,25 +5,35 @@ The companion is a separate process and cannot see other Claude Code sessions,
 so this script keeps the count for it: one flag file per session under
 $XDG_RUNTIME_DIR/hk47/badge, which the companion counts once a second.
 
-Two kinds of flag, because they clear differently:
+Three kinds of flag, one per way a session can be waiting on Master:
 
-  <session>.blocked  the session is stopped at a permission prompt, or has
-                     notified that it wants input. Cleared by the tool call that
-                     follows an approval, by the end of the turn, or by your next
-                     prompt -- whichever arrives first.
-  <session>.error    a tool call in that session failed. Cleared only when you
-                     next type into that session, because answering the prompt is
-                     what counts as having seen it. An error you never returned to
-                     stays on the badge.
+  <session>.question    the session has put a question through the
+                        AskUserQuestion tool and the tool call is blocking on
+                        the answer.
+  <session>.permission  the session is stopped at a permission prompt.
+  <session>.waiting     the session finished its turn and wants a prompt.
+
+The three are mutually exclusive, so raising one clears the other two. A session
+appears in exactly one column or in none of them, which is what makes the three
+counts sum to "sessions currently waiting on Master" rather than to something
+larger than the number of sessions open.
+
+Errors are deliberately not counted. A failed tool call is the session's problem
+to report in its own transcript; the badge answers "who is waiting for me", and
+a failure that Claude is still working around is not waiting for anybody.
+
+Notification is deliberately unregistered. It fires both for a permission prompt
+and for an idle session, so it duplicates PermissionRequest and Stop with worse
+timing and no way to tell the two apart except by parsing its message text.
 
 The runtime dir is tmpfs, so a reboot clears the state and no reaping is needed.
 A dead session that ended without firing SessionEnd leaves one stale flag until
 the next reboot, which is the price of having no reaper; it is not worth a
 liveness check on every hook event.
 
-Registered on both accounts' settings.json. Deliberately registered with matcher
-"*" on PostToolUseFailure, unlike peon-ping's own entry, which matches Bash only
-and would therefore miss every non-shell failure.
+Registered on both accounts' settings.json. PreToolUse and PostToolUse are
+registered with matcher "AskUserQuestion" rather than "*", because only that one
+tool blocks on Master.
 
 Contract: hooks run on a timeout and their stdout on UserPromptSubmit is injected
 into the prompt, so this script prints nothing and always exits 0. A badge that
@@ -35,18 +45,21 @@ import os
 import sys
 from pathlib import Path
 
-BLOCKED = "blocked"
-ERROR = "error"
+QUESTION = "question"
+PERMISSION = "permission"
+WAITING = "waiting"
 
-# event name -> (flags to raise, flags to clear)
+ALL_FLAGS = (QUESTION, PERMISSION, WAITING)
+
+# event name -> flag to raise, or None to clear the session entirely.
+# Every raise clears the other two, so the states stay mutually exclusive.
 EVENTS = {
-    "PermissionRequest": ((BLOCKED,), ()),
-    "Notification": ((BLOCKED,), ()),
-    "PostToolUseFailure": ((ERROR,), ()),
-    "PostToolUse": ((), (BLOCKED,)),
-    "Stop": ((), (BLOCKED,)),
-    "UserPromptSubmit": ((), (BLOCKED, ERROR)),
-    "SessionEnd": ((), (BLOCKED, ERROR)),
+    "PreToolUse": QUESTION,  # matcher AskUserQuestion: the tool is blocking now
+    "PermissionRequest": PERMISSION,
+    "Stop": WAITING,  # turn over, so anything it was blocked on is moot
+    "PostToolUse": None,  # matcher AskUserQuestion: the answer came back
+    "UserPromptSubmit": None,
+    "SessionEnd": None,
 }
 
 
@@ -70,31 +83,36 @@ def main():
         return
 
     event = payload.get("hook_event_name", "")
-    raise_flags, clear_flags = EVENTS.get(event, ((), ()))
-    if not raise_flags and not clear_flags:
+    if event not in EVENTS:
         return
+    raise_flag = EVENTS[event]
+
+    # Guard the matcher in code as well as in settings.json. The registration is
+    # scoped to AskUserQuestion, but a wildcard entry copied in by hand would
+    # otherwise raise the question flag on every tool call in the session.
+    if event in ("PreToolUse", "PostToolUse"):
+        if payload.get("tool_name") != "AskUserQuestion":
+            return
 
     key = session_key(payload.get("session_id", ""))
     if not key:
         return
 
     directory = badge_dir()
-    for flag in clear_flags:
+    for flag in ALL_FLAGS:
+        if flag == raise_flag:
+            continue
         try:
             (directory / f"{key}.{flag}").unlink()
         except OSError:
             pass  # already gone, or the dir was never created
 
-    if raise_flags:
+    if raise_flag:
         try:
             directory.mkdir(parents=True, exist_ok=True)
+            (directory / f"{key}.{raise_flag}").touch()
         except OSError:
-            return
-        for flag in raise_flags:
-            try:
-                (directory / f"{key}.{flag}").touch()
-            except OSError:
-                pass
+            pass
 
 
 if __name__ == "__main__":

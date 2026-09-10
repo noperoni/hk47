@@ -28,6 +28,36 @@ struct ThemeManifest {
     /// Optional static diorama backdrop drawn behind the sprite.
     #[serde(default)]
     backdrop: Option<BackdropDef>,
+    /// Wall consoles in the backdrop that double as attention counters.
+    /// Keys: "question", "permission", "waiting".
+    #[serde(default)]
+    readouts: HashMap<String, Readout>,
+}
+
+/// One of the corridor's own bezelled screens, repurposed as a counter.
+///
+/// The room is already full of consoles, so a live counter repaints the glass
+/// inside one of them and a dead counter leaves the backdrop byte-identical to
+/// how it is painted. Position is the identity: a given panel always means the
+/// same counter, which is why nothing needs an icon stamped into eleven pixels.
+///
+/// A theme with no `[readouts]` table simply shows no counts. That is the right
+/// failure: the rects are measured against one specific backdrop, and guessing
+/// at them for a pack that never declared any would light up whatever happened
+/// to be painted at those coordinates.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct Readout {
+    /// Glass rect in backdrop pixels, `[x0, y0, x1, y1]`, x1/y1 exclusive.
+    pub rect: [f64; 4],
+    /// Lit colour as RGB 0-255. The glass, rim and bloom are all derived from it.
+    pub colour: [f64; 3],
+}
+
+impl Readout {
+    /// The lit colour as cairo's 0.0-1.0 components.
+    pub fn tint(&self) -> [f64; 3] {
+        [self.colour[0] / 255.0, self.colour[1] / 255.0, self.colour[2] / 255.0]
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -78,10 +108,10 @@ struct AnimationDef {
     /// Single-file strip (non-directional). Loaded as Direction::S.
     #[serde(default)]
     file: Option<String>,
-    /// Pattern like "a-{dir}.png" — {dir} replaced per direction. Takes precedence over file.
+    /// Pattern like "a-{dir}.png", with {dir} replaced per direction. Takes precedence over file.
     #[serde(default)]
     file_pattern: Option<String>,
-    /// Frames per strip. Omit to auto-detect from square (NxN) frames — lets
+    /// Frames per strip. Omit to auto-detect from square (NxN) frames, which lets
     /// each direction carry its own length without per-file bookkeeping.
     #[serde(default)]
     frames: Option<usize>,
@@ -160,6 +190,7 @@ pub struct Theme {
     geometry: Geometry,
     states: HashMap<(AnimState, Direction), StateAnimation>,
     backdrop: Option<SpriteSheet>,
+    readouts: HashMap<String, Readout>,
 }
 
 impl Theme {
@@ -180,9 +211,14 @@ impl Theme {
         self.backdrop.as_ref()
     }
 
-    /// Where this theme's art expects to be drawn — see `Geometry`.
+    /// Where this theme's art expects to be drawn: see `Geometry`.
     pub fn geometry(&self) -> Geometry {
         self.geometry
+    }
+
+    /// The wall console this theme assigns to a counter, if it declares one.
+    pub fn readout(&self, key: &str) -> Option<Readout> {
+        self.readouts.get(key).copied()
     }
 }
 
@@ -264,13 +300,13 @@ fn try_load_from_dir(theme_dir: &Path) -> Result<Theme, String> {
                             }
                         },
                         Err(_) => {
-                            // Missing direction — silently skip; fallback chain covers it.
+                            // Missing direction: silently skip; fallback chain covers it.
                         }
                     }
                 }
             }
             (None, Some(file)) => {
-                // Single-file strip — stored as Direction::S, other dirs fall back to it.
+                // Single-file strip, stored as Direction::S, other dirs fall back to it.
                 let png_path = theme_dir.join(file);
                 match fs::read(&png_path) {
                     Ok(bytes) => match SpriteSheet::from_png_bytes(&bytes, anim_def.frames) {
@@ -311,7 +347,7 @@ fn try_load_from_dir(theme_dir: &Path) -> Result<Theme, String> {
         }
     }
 
-    // Ensure (Idle, S) exists — it's the ultimate fallback for all missing combinations.
+    // Ensure (Idle, S) exists: it's the ultimate fallback for all missing combinations.
     states.entry((AnimState::Idle, Direction::S)).or_insert_with(|| {
         eprintln!("warn: theme missing idle state, using embedded default");
         embedded_idle_animation()
@@ -347,7 +383,7 @@ fn try_load_from_dir(theme_dir: &Path) -> Result<Theme, String> {
         }
     }
 
-    // Optional diorama backdrop — a single static frame drawn behind the sprite.
+    // Optional diorama backdrop: a single static frame drawn behind the sprite.
     // A decode/read failure warns and falls back to no backdrop (sprite renders alone).
     let backdrop = manifest.backdrop.as_ref().and_then(|bd| {
         let png_path = theme_dir.join(&bd.file);
@@ -372,12 +408,13 @@ fn try_load_from_dir(theme_dir: &Path) -> Result<Theme, String> {
         geometry: manifest.geometry,
         states,
         backdrop,
+        readouts: manifest.readouts,
     })
 }
 
 /// Build theme from compiled-in assets.
 fn load_embedded_default() -> Theme {
-    // Embedded assets are verified at build time via include_bytes! — decode failure
+    // Embedded assets are verified at build time via include_bytes!, so decode failure
     // here means the shipped binary is broken, which is a build-time bug, not runtime input.
     let mut states = HashMap::new();
     states.insert((AnimState::Idle, Direction::S), embedded_idle_animation());
@@ -407,6 +444,8 @@ fn load_embedded_default() -> Theme {
         geometry: Geometry::default(),
         states,
         backdrop: None,
+        // No backdrop means no corridor and therefore no consoles to light.
+        readouts: HashMap::new(),
     }
 }
 

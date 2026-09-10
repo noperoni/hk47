@@ -2,8 +2,8 @@
 
 A pixel-art desktop companion for Hyprland. HK-47 stands in a lit corridor
 diorama in a corner of your screen, idling, shifting stance and sweeping the room
-with a scanner beam. A badge on his alcove counts the Claude Code sessions that
-want your attention.
+with a scanner beam. Three of the corridor's own wall consoles light up to count
+the Claude Code sessions waiting on you.
 
 He is a sprite in a diorama, not a chat client and not a button. Clicking him
 does nothing.
@@ -29,11 +29,13 @@ socket first owns `toggle`, and the other is left without a listener.
 
 Alfred's chat bubble, intent router, project picker and `claude` subprocess have
 all been removed from this fork. What remains is the diorama, the animation
-system, the attention badge and the IPC.
+system, the attention readouts and the IPC.
 
 Fixes worth carrying back upstream, should Alfred ever want them: the `Error`
-animation state, the attention badge, the theme-owned geometry block, the
-per-frame contact shadow and the scan beam are all theme-agnostic.
+animation state, the theme-owned geometry block, the per-frame contact shadow and
+the scan beam are all theme-agnostic. The attention readouts are not: they are
+drawn into rects a theme declares against its own backdrop art, so a pack with no
+`[readouts]` block simply shows no counts.
 
 ## Requirements
 
@@ -80,25 +82,43 @@ summoned. Avoid `SUPER CTRL H` on Omarchy, which is its hardware menu.
 He is moved with SUPER + left-drag, which is Omarchy's global window-move bind
 and needs no per-app rule.
 
-## The attention badge
+## The attention readouts
 
-A coloured disc in the top-right corner counts what is waiting for you across
-*every* Claude Code session on the machine:
+Three of the corridor's wall consoles double as counters, tallying what is
+waiting for you across *every* Claude Code session on the machine:
 
-- **amber** — one or more sessions are stopped at a permission prompt, or have
-  notified that they want input
-- **red** — at least one session has a tool failure you have not answered
+| console | counts | colour |
+|---|---|---|
+| the tan notice board at his shoulder | sessions blocked on an `AskUserQuestion` call | red |
+| the glyph screen on the left wall | sessions stopped at a permission prompt | amber |
+| the small panel beneath it | sessions that finished a turn and want a prompt | cyan |
 
-HK-47 cannot see other sessions from inside his own process, so the count is
+A live counter repaints the glass inside its bezel with dark glass, a lit rim, a
+scanline and a chunky hand-built numeral. A dead one draws nothing at all, so at
+rest the backdrop is exactly as painted and there is no evidence anything was
+ever added. Counts above nine clamp to `9+`.
+
+Position is the identity: a given console always means the same counter. That is
+what makes icons unnecessary, which matters, because no padlock survives being
+drawn at seven pixels square.
+
+The rects are declared per theme, in backdrop pixels, so the readouts are not
+theme-agnostic and a pack that omits them shows no counts. See `[readouts]` under
+Theme geometry.
+
+Errors are deliberately not counted. A failed tool call is the session's own
+business to report in its transcript; these three answer "who is waiting for me",
+and a failure Claude is still working around is not waiting for anybody.
+
+HK-47 cannot see other sessions from inside his own process, so the counts are
 kept for him by a hook script that drops one flag file per session under
 `$XDG_RUNTIME_DIR/hk47/badge`. He polls that directory once a second. The runtime
 dir is tmpfs, so the state clears itself on reboot and no reaping is needed.
 
-Flags clear on different events, because the two mean different things. A
-`blocked` flag clears on the tool call that follows an approval, on the end of
-the turn, or on your next prompt — whichever lands first. An `error` flag clears
-only when you next type into that session, on the reasoning that answering the
-prompt is what proves you saw it. An error you never returned to keeps counting.
+The three states are mutually exclusive per session: raising one clears the other
+two, so the counts sum to the number of sessions waiting rather than to something
+larger than the number of sessions open. Every flag clears on `UserPromptSubmit`
+and on `SessionEnd`.
 
 ### Installing the hook
 
@@ -108,12 +128,18 @@ Symlink the script somewhere stable and register it on both accounts:
 ln -sfn "$PWD/contrib/hk47-badge-hook.py" ~/.claude/hooks/hk47_badge.py
 ```
 
-Then add it to `hooks` in each `settings.json` you use, on `PermissionRequest`,
-`Notification`, `PostToolUseFailure` (matcher `*`), `PostToolUse`, `Stop`,
-`UserPromptSubmit` and `SessionEnd`, as a `command` hook with `async: true`.
+Then add it to `hooks` in each `settings.json` you use, as a `command` hook with
+`async: true`, on `PermissionRequest`, `Stop`, `UserPromptSubmit`, `SessionEnd`,
+and on `PreToolUse` and `PostToolUse` with matcher `AskUserQuestion`.
 
-Register `PostToolUseFailure` with matcher `*`, not `Bash`. peon-ping's own entry
-matches `Bash` alone and therefore never sees a failed Edit, Write or MCP call.
+Do not register it on `Notification`. That event fires both for a permission
+prompt and for an idle session, so it duplicates `PermissionRequest` and `Stop`
+with worse timing and no way to tell the two apart except by parsing its message
+text.
+
+The `AskUserQuestion` matcher is enforced in the script as well as in
+`settings.json`, so a wildcard entry copied in by hand cannot raise the question
+count on every tool call in the session.
 
 ## Animation states
 
@@ -121,17 +147,16 @@ matches `Bash` alone and therefore never sees a failed Edit, Write or MCP call.
 `thinking` and `error`. Any state without art falls back to the idle sheet with a
 warning on stderr, so a theme is never required to supply all of them.
 
-The idle rotation cuts between four beats — `idle`, `scan_l`, `idle_alt`,
-`scan_r` — holding each for a randomised 10 to 15 seconds and freezing on its
+The idle rotation cuts between four beats (`idle`, `scan_l`, `idle_alt`,
+`scan_r`), holding each for a randomised 10 to 15 seconds and freezing on its
 last frame rather than looping, which is what stops him fidgeting once a second.
 The two scan beats turn his head 45° and sweep a beam across the room, flashing
 the emitter at ignition and shutdown and holding the turn for half a second after
 it goes dark.
 
-`error` is entered when the badge's error count goes from zero to non-zero, and
-left again when it returns to zero. `attentive` and `thinking` have art but no
-driver at present: they are waiting on the separate question and permission
-counters.
+`error`, `attentive` and `thinking` all have art but no driver. The idle rotation
+is the only behaviour, and nothing outside the process may interrupt it until a
+state has an agreed behaviour of its own. `set_state` is retained and unwired.
 
 ## Theme geometry
 
@@ -146,10 +171,26 @@ hardcoding, so a repack can re-frame him without a recompile:
 | `scale` | figure size relative to `config.sprite.size` |
 | `border` | width of the backdrop's frame line |
 
+Alongside it, an optional `[readouts]` table names the wall consoles that carry
+the attention counters. Each key is a counter name, and `rect` is the glass in
+backdrop pixels with `x1`/`y1` exclusive:
+
+```toml
+[readouts.question]
+rect = [178, 95, 191, 116]
+colour = [214, 56, 46]
+```
+
+Valid keys are `question`, `permission` and `waiting`. A face narrower than five
+pixels or shorter than seven is skipped, on the grounds that no numeral survives
+it. The `hk47` pack's rects are derived in `assemble-hk47-pack.py` from
+coordinates in the *original* room art, so a change to the crop or the border
+moves them rather than stranding them.
+
 Three numbers interlock. `config.sprite.size` divided by `frame_size` gives the
 diorama's scale, which sets the window size; `geometry.scale` multiplies the
 figure back up from there. For the `hk47` pack, 96 over 128 gives 0.75 and a
-scale of 4/3 returns the figure to exactly 1.0 — native pixel density for him,
+scale of 4/3 returns the figure to exactly 1.0: native pixel density for him,
 while only the room is reduced. Move one and the others must move with it.
 
 ## Configuration
@@ -161,12 +202,12 @@ ignored, so a config written for an older build keeps working.
 ```toml
 [sprite]
 fps = 24
-size = 128                # px; the badge disc is sized at 22% of this
+size = 128                # px; his native frame width, and the window's opening size
 theme = "default"         # loads ~/.config/hk47/sprites/<theme>/, "default" = embedded
 ```
 
 There is no placement section. A Wayland client cannot set its own coordinates,
-so where he opens is a Hyprland window rule against `com.hk47.desktop` — see
+so where he opens is a Hyprland window rule against `com.hk47.desktop`: see
 `contrib/hyprland.conf`.
 
 The sprite pack itself is symlinked in from this project rather than copied:

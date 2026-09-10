@@ -184,6 +184,11 @@ fn main() {
                 cr.translate(off_x, off_y);
 
                 overlay::sprite::draw_backdrop(cr, bd, diorama_scale);
+                // Attention counters, lit on the corridor's own wall consoles. They
+                // are painted on the wall, so they are drawn with the room rather
+                // than over it: his body occludes them, not the reverse. At zero
+                // nothing is drawn at all and the backdrop stands as painted.
+                overlay::badge::draw(cr, badge_draw.get(), &theme_draw, diorama_scale);
                 // Base position: horizontally centred on the floor.
                 let mut ox_screen = (bw * diorama_scale - hk47_display_size) / 2.0;
                 // While pacing (Thinking), shift along the floor and mirror the
@@ -240,21 +245,13 @@ fn main() {
                 if let Some(beam) = &beam {
                     overlay::sprite::draw_beam_flash(cr, beam, eye_x, eye_y, interior);
                 }
-                // Badge last, and anchored to the diorama's own top-right corner rather
-                // than the window's, so it rides the picture instead of floating out in
-                // the transparent slack once he is tiled into a box wider than he is.
-                // Diameter stays tied to the figure, so it grows with him.
-                overlay::badge::draw(
-                    cr,
-                    badge_draw.get(),
-                    bw * diorama_scale,
-                    frame_w * diorama_scale * 0.22,
-                );
                 cr.restore().unwrap();
             } else {
+                // No backdrop means no corridor and so no consoles to light. A
+                // theme without a diorama shows the figure and nothing else,
+                // rather than growing a floating badge back for the occasion.
                 let size = (w.min(h)) as f64;
                 overlay::sprite::draw_frame(cr, anim.current_sheet(), anim.current_frame(), size);
-                overlay::badge::draw(cr, badge_draw.get(), w as f64, size * 0.22);
             }
         });
 
