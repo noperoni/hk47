@@ -1,0 +1,7 @@
+# scratch, overwritten every round. Round: skill.invoke (a skill or slash command is loading).
+# category	resref	op	spans	seconds	label
+skill.invoke	nm35aahhkd07428_	whole	-	3.41	Statement: Simulation initiating.
+skill.invoke	nm17ac08hk01061_	cut	0.00-3.90	3.90	Disclosure: I am a versatile protocol and combat droid.
+skill.invoke	nm35aahhkd07207_	splice	0.00-0.79+4.53-7.28	4.04	Affirmative: Then I can certainly guide you through the process.
+skill.invoke	nm17ac08hk01036_	graft	nm35aahhkd07433_:0.00-0.60+3.61-6.73	4.17	Statement: My capabilities are quite expansive.
+skill.invoke	nm17ac08hk01071_	splice	0.00-0.72+4.42-8.85	5.45	Disclosure: I am capable of eliminating a very... specific type of target.

@@ -1,0 +1,116 @@
+# HK-47 pack wiring, decided with Master. One row per output clip.
+#
+# Build rule (set 2026-09-09): every clip is qualifier-first. The spoken
+# qualifier segment leads, the source's own pause follows, then the sentence.
+# Segments come from hk47-gaps.tsv (silencedetect, -38dB, >=0.20s).
+#
+# op      meaning
+# whole   use the clip unchanged
+# cut     keep a single span A-B
+# splice  join span A-B to span C-D, restoring a pause between them
+# graft   join a span from ANOTHER clip to a span of this one (rule exception)
+#
+# In a span list, ~D is D seconds of explicit silence rather than audio, for
+# where a word is excised and neither the source's own pause nor the 0.45s
+# fallback is the right length. Fence it with | on both sides: A-B|~0.30|C-D.
+#
+# category	resref	op	spans	seconds	label
+session.start	nm35aahhkd07000_	whole	-	3.63	Statement: HK-47 is ready to serve, master.
+session.start	nm35aahhkd07360_	whole	-	5.46	Affirmation: HK-47 exists only to serve, master.
+session.start	nm17ac08hk01006_	splice	0.00-0.63+7.49-10.62	4.1	Statement: My gears are practically quivering with anticipation.
+session.start	nm17ac08hk01042_	splice	0.00-1.22+6.76-8.31	3.0	Extrapolation: We will mesh well.
+session.start	nm17ac08hk01038_	splice	0.00-0.99+4.53-8.04	4.7	Assurance: I will grant loyal service in exchange for proper maintenance.
+session.resume	nm35aahhkd07367_	cut	0.00-4.95	4.95	Access complete: I have recovered the last of my deleted memory, master.
+session.resume	nm35aahhkd07254_	splice	0.00-0.67+3.33-5.24	2.8	Observation: This is a most pleasing memory, master.
+session.resume	nm35aahhkd07254_	splice	0.00-0.67+5.46-6.67	2.2	Observation: Thank you for recovering it.
+session.end	nm35aahhkd07431_	graft	nm35aahhkd07096_:0.00-0.96+0.00-3.08	4.1	Resignation: As you desire, master. Signing off.
+session.end	nm35aahhkd07423_	whole	-	6.11	As you desire, master. I cannot help but claim a small amount of relief. Signing off.
+session.idle	nm35aahhkd07065_	whole	-	3.08	Observation: Organics have no sense of persistence.
+session.idle	nm35aahhkd07098_	splice	0.00-1.01+5.15-6.93	3.0	Resignation: Can we please go and shoot something now?
+session.idle	nm35aahhkd07060_	splice	0.00-0.66+5.73-8.37	3.5	Commentary: Shall we find something to kill to cheer ourselves up?
+session.idle	nm35aahhkd07148_	whole	-	7.25	Commentary: Organic meatbags have such delicate staminas.
+task.acknowledge	nm35aahhkd07114_	whole	-	2.97	Statement: I will endeavour to do so, master.
+task.acknowledge	nm35aahhkd07387_	whole	-	3.21	Statement: If you say so, master.
+task.acknowledge	nm35aahhkd07185_	splice	0.00-0.66+1.13-2.16	1.9	Statement: Of course, master.
+task.acknowledge	nm17ac08hk01004_	splice	0.00-0.51+5.56-7.63	2.6	Answer: At your command, of course, master.
+task.acknowledge	nm17ac08hk01004_	splice	0.00-0.51+1.12-1.71	1.2	Answer: Indeed.
+task.acknowledge	nm35aahhkd07212_	cut	0.00-4.11	4.11	Appeasement: Yes, master. Of course, master.
+task.complete.self	nm35aahhkd07390_	splice	0.00-0.75+1.24-1.77	1.4	Statement: See?
+task.complete.self	nm35aahhkd07244_	splice	0.00-0.57+5.55-7.14	2.47	Statement: I move very quickly.
+task.complete.self	nm35aahhkd07031_	splice	0.00-0.91+2.58-5.58	4.37	Observation: I imagine it was truly a work of art to see me in action.
+task.complete.self	nm35aahhkd07023_	splice	0.00-0.83+4.74-5.35|5.40-6.84	3.41	Commentary: That would be my genius engineering.
+task.complete.master	nglobehhkd07556_	whole	-	4.58	Statement: Well done, master. You're my kind of owner!
+task.complete.master	nm35aahhkd07183_	whole	-	3.68	Observation: Now that is the master I remember.
+task.complete.master	nm35aahhkd07154_	splice	0.00-0.66+3.49-6.17	3.3	Agreement: You show excellent logical skills... for a meatbag.
+task.complete.master	nm35aahhkd07120_	splice	0.00-0.79+3.96-6.61	3.4	Commentary: Your brain is very un-meatbag-like.
+task.complete.master	nm35aahhkd07120_	splice	0.00-0.79+1.18-3.63	3.2	Commentary: That is a very clever turn of phrase, master.
+subagent.complete	nm35aahhkd07270_	splice	0.00-0.64+5.54-6.88	2.4	Assessment: ...a most involved procedure.
+subagent.complete	nm35aahhkd07401_	splice	0.00-0.67+6.58-9.37	3.8	Statement: The soldier seemed very startled, I must say.
+subagent.complete	nm35aahhkd07403_	splice	0.00-0.64+5.49-7.17	2.6	Answer: They will improve my performance.
+task.error	nm35aahhkd07079_	splice	0.00-0.61+6.00-7.05	1.9	Correction: I'll, uh, work on it, master...
+task.error	nm35aahhkd07012_	splice	0.00-0.90+2.05-3.34	2.4	Qualification: I spoke out of ignorance.
+task.error	nm35aahhkd07181_	splice	0.00-0.73+1.17-2.70	2.7	Retraction: I apologize, master.
+task.error	nm35aahhkd07054_	splice	0.00-0.86+1.24-2.67	2.7	Retraction: Did I say that out loud?
+task.error	nm35aahhkd07417_	graft	nm35aahhkd07102_:0.00-0.62+3.76-6.98	4.2	Apology: I am afraid the operation did not succeed, master.
+tool.error	nm35aahhkd07412_	graft	nm35aahhkd07159_:0.00-0.82+8.36-9.21	1.9	Expletive: I am poking my own eye sockets!
+tool.error	nm35aahhkd07132_	splice	0.00-0.79+1.10-1.61	1.6	Qualification: Err...
+input.required	nm35aahhkd07212_	graft	nm35aahhkd07375_:0.00-0.49+4.69-5.54	1.87	Query: Could we begin?
+input.required	nm35aahhkd07084_	graft	nm35aahhkd07375_:0.00-0.49+5.47-6.61	2.16	Query: Does that suffice?
+input.required	nm35aahhkd07013_	graft	nm35aahhkd07375_:0.00-0.49+4.20-5.20	2.02	Query: Right... master?
+input.required	nm35aahhkd07363_	graft	nm35aahhkd07375_:0.00-0.49+1.22-2.31	2.11	Query: Should I, master?
+input.question	nm35aahhkd07150_	whole	-	6.78	Query: Would you rather be caught with contraband that is very illegal or just a little illegal?
+input.question	nm35aahhkd07426_	graft	nm35aahhkd07375_:0.00-0.49+0.00-1.48|2.64-3.32	3.18	Query: Are you ready to begin, master?
+input.declined	nglobehhkd07558_	whole	-	4.5	Statement: Oh, master. I'm so very disappointed in you.
+input.declined	nm35aahhkd07069_	splice	0.00-0.56+0.92-1.60	1.6	Objection: But Master!
+resource.limit	nm35aahhkd07029_	graft	nm35aahhkd07375_:0.00-0.49+2.81-3.32|~0.12|4.12-4.60	2.13	Query: My memory, remember?
+resource.limit	nm35aahhkd07110_	splice	0.00-0.70+6.48-8.40	3.07	Observation: I cannot control this process, however.
+resource.limit	nm35aahhkd07015_	splice	0.00-0.50+4.11-7.06	3.9	Answer: Several systems are not operating as they should be.
+resource.limit	nm35aahhkd07108_	graft	nm35aahhkd07065_:0.00-0.63+0.94-2.16|2.46-4.29	4.18	Observation: No, master. My memory has been almost completely erased.
+user.spam	nm35aahhkd07159_	whole	-	5.6	Expletive: Damn it, master, I am an assassination droid... not a dictionary!
+user.spam	nm35aahhkd07098_	splice	0.00-1.01+1.57-4.79	4.79	Resignation: You have no idea, master. No idea at all.
+user.spam	nm35aahhkd07415_	graft	nm35aahhkd07159_:0.00-0.82+0.00-2.28	3.35	Expletive: ...aahhhh! What are you doing?!
+user.spam	nm35aahhkd07411_	graft	nm35aahhkd07159_:0.00-0.82+1.40-2.84	2.51	Expletive: What are you doing, master!
+user.spam	nm35aahhkd07412_	graft	nm35aahhkd07159_:0.00-0.82+9.51-10.61	2.17	Expletive: Ow! Stop!
+user.spam	nm35aahhkd07414_	graft	nm35aahhkd07069_:0.00-0.56+3.475-8.05	5.49	Objection: You have nearly detonated my thermal core three times in a matter of minutes.
+user.spam	nm35aahhkd07416_	graft	nm35aahhkd07357_:0.00-0.84+6.963-9.65	3.94	Supplication: Calm yourself, I implore you.
+user.question	nm35aahhkd07279_	splice	0.00-0.59+1.13-2.86	2.86	Answer: I am unsure, master.
+user.question	nm35aahhkd07392_	splice	0.00-0.70+1.29-4.84	4.84	Answer: Such knowledge is locked within my core, master.
+user.question	nm35aahhkd07207_	splice	0.00-0.79+4.677-7.28	3.84	Affirmative: Then I can certainly guide you through the process.
+user.question	nm17ac08hk01044_	graft	nm35aahhkd07173_:0.00-0.67+5.435-7.396	2.97	Statement: I will answer your queries,
+user.continue	nm35aahhkd07421_	splice	0.00-0.66+0.96-2.06	2.06	Statement: As you wish, master.
+user.continue	nm35aahhkd07295_	splice	0.00-0.57+0.99-2.39	2.39	Answer: Certainly. Why not?
+user.continue	nm35aahhkd07425_	splice	0.00-0.677+1.059-3.446	3.41	Statement: Certainly, master.
+user.continue	nm35aahhkd07096_	splice	0.00-0.88+2.45-3.48	2.14	Resignation: Very well, master.
+# user.opinion is THIN: one clip. Fires at UserPromptSubmit, before any answer
+# exists, so verdict lines are barred: they would commit me to a conclusion I
+# have not reached. Acknowledgement only. Sweep for companions later.
+user.opinion	nm35aahhkd07188_	graft	nm35aahhkd07012_:0.00-0.90+5.64-6.30+6.84-8.63	4.12	Qualification: It is... difficult to explain, master.
+user.delete	nm17ac08hk01002_	graft	nm35aahhkd07375_:0.00-0.49+5.37-6.96	2.61	Query: Shall I kill something for you?
+user.delete	nm35aahhkd07073_	graft	nm35aahhkd07357_:0.00-0.84+6.01-8.00	3.25	Supplication: Allow me to kill something in your honor!
+user.delete	nm35aahhkd07117_	splice	0.00-0.79+4.95-7.66	4.00	Observation: I am still well-capable of killing most anything for you.
+user.delete	nm35aahhkd07136_	splice	0.00-0.738+2.446-6.31	4.84	Commentary: Did I ever tell you how much I enjoy killing for you, master?
+user.rebuke	nm35aahhkd07266_	splice	0.00-0.57+1.20-2.34	2.34	Statement: That hurts, master.
+user.rebuke	nm35aahhkd07408_	splice	0.00-0.73+1.48-3.96	3.96	Statement: You are a very harsh master, master.
+user.rebuke	nm35aahhkd07134_	whole	-	5.47	Commentary: I mean... nice human, goo-oood human...
+user.rebuke	nm35aahhkd07181_	whole	-	4.44	Retraction: I apologize, master. It is a force of habit.
+user.rebuke	nm35aahhkd07378_	splice	0.00-0.81+1.06-5.40	5.40	Objection: Oh, fine. Laugh at me, master.
+user.overload	nm35aahhkd07214_	splice	0.00-0.64+8.10-9.24	2.21	Statement: This may take awhile.
+user.overload	nm35aahhkd07319_	splice	0.00-0.492+4.155-5.30|~0.30|6.10-7.49	3.73	Answer: I could spend decades... and still not make a dent.
+user.insult.world	nm35aahhkd07154_	splice	0.00-0.66+0.98-3.26	3.26	Agreement: This was my thought as well, master.
+user.insult.world	nm35aahhkd07144_	splice	0.00-0.59+4.59-6.39	3.11	Answer: That is meatbag logic for you.
+user.insult.world	nm35aahhkd07328_	splice	0.00-0.72+1.05-2.45	2.45	Statement: So it appears, master.
+user.insult.droid	nm35aahhkd07071_	graft	nm35aahhkd07069_:0.00-0.56+6.58-7.03+7.44-9.74	4.08	Objection: What?! I must object, master, this is untrue!
+user.insult.droid	nm35aahhkd07069_	splice	0.00-0.53+5.28-7.93	3.53	Objection: Can I be faulted for my perfect artificial construction?
+user.insult.droid	nm35aahhkd07069_	splice	0.00-0.53+1.849-4.914	3.95	Objection: Am I not far too useful to be thrown aside in such a casual manner?
+user.insult.droid	nm35aahhkd07163_	splice	0.00-0.516+2.404-5.531	4.09	Answer: You may not value your own existence, but I certainly do!
+user.insult.droid	nm35aahhkd07023_	splice	0.00-0.83+1.95-4.44	3.85	Commentary: I would truly hate to be turned into spare scrap, master.
+user.insult.droid	nm35aahhkd07357_	splice	0.00-0.84+1.39-3.87	3.74	Supplication: Please, master, have I not pleased you?
+danger.command	nm35aahhkd07122_	cut	0.00-4.44	4.44	Objection: I would not advise that, master.
+danger.command	nm35aahhkd07208_	cut	0.00-4.43	4.43	Request: I only ask that you be oh so very careful, master.
+danger.command	nm35aahhkd07021_	whole	-	4.37	Caution: Shhhh, master! Such a function in a droid is highly illegal.
+danger.command	nm35aahhkd07205_	graft	nm17ac08hk01048_:0.00-0.74+2.96-4.48	2.58	Advisement: Far too dangerous to access.
+skill.invoke	nm35aahhkd07428_	whole	-	3.41	Statement: Simulation initiating.
+skill.invoke	nm17ac08hk01061_	cut	0.00-3.90	3.90	Disclosure: I am a versatile protocol and combat droid.
+skill.invoke	nm35aahhkd07207_	splice	0.00-0.79+4.53-7.28	4.04	Affirmative: Then I can certainly guide you through the process.
+skill.invoke	nm17ac08hk01036_	graft	nm35aahhkd07433_:0.00-0.60+3.61-6.73	4.17	Statement: My capabilities are quite expansive.
+skill.invoke	nm17ac08hk01071_	splice	0.00-0.72+4.42-8.85	5.45	Disclosure: I am capable of eliminating a very... specific type of target.

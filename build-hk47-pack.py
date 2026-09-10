@@ -1,137 +1,60 @@
 #!/usr/bin/env python3
-"""Build an HK-47 CESP sound pack from a local KOTOR 1 install.
+"""Build and install the HK-47 CESP sound pack from hk47-wiring.tsv.
 
-Two things make this less trivial than copying files:
+The wiring file is the decision record: one row per output clip, carrying the
+source clip, the op (whole / cut / splice / graft), the spans and the exact
+spoken text. This script turns those 96 rows into an installed peon-ping pack.
 
-  * KOTOR's streamwaves/*.wav are not WAV. They carry a stub RIFF header whose
-    data chunk is declared zero-length, immediately followed by raw MP3 frames.
-    Playing them directly gives silence. We find the first MP3 sync word and
-    hand everything from there to ffmpeg.
+It does not re-decide anything and it does not re-cut anything. The actual audio
+work lives in hk47-render.py, whose helpers are imported here, because a second
+implementation of the splice arithmetic is a second place for it to be wrong.
 
-  * The filenames are dialogue node IDs, so nothing on disk says what a clip
-    says. dialog.tlk carries, per string, a SoundResRef naming the clip. Joining
-    the two recovers the exact script text, which beats transcribing 291 clips
-    and guessing at the punctuation HK-47 is entirely defined by.
+Two compatibility notes, both deliberate:
 
-Audio stays local: it is extracted from the game you own, into your own config
-dir, and never leaves this machine.
+  * peon-ping only routes seven category names today. The other eighteen in the
+    wiring file are written into the manifest anyway and sit inert until the
+    peon.sh seams exist: an unrouted key is a dict lookup that never happens,
+    not an error.
+  * task.complete.self and task.complete.master are a split that needs a
+    classifier nobody has written. Until then the manifest also carries a plain
+    task.complete key aliasing the .self clips, because that is the one peon.sh
+    fires on Stop and an empty category means silence where there used to be a
+    line. ponytail: drop the alias once the classifier can tell the two apart.
+
+Audio stays local: extracted from the game you own, into your own config dir,
+and never leaving this machine.
 """
 
+import csv
+import hashlib
+import importlib.util
 import json
 import os
-import struct
-import subprocess
+import shutil
 import sys
+import time
 
-KOTOR = os.environ.get(
-    "KOTOR_DIR", "~/.steam/steam/steamapps/common/swkotor"
-)
+HERE = os.path.dirname(os.path.abspath(__file__))
 PACK_NAME = "hk47"
+WIRING = os.path.join(HERE, "hk47-wiring.tsv")
 
-# Chosen by hand from the 291 HK-47 clips that have both audio and script text.
-# Bias is toward short lines: a bark that outlasts the event it announces stops
-# being a notification and becomes a podcast.
-WIRING = {
-    "session.start": [
-        "nm35aahhkd07000_",  # HK-47 is ready to serve, master.
-        "nm35aahhkd07360_",  # HK-47 exists only to serve, master.
-        "nm35aahhkd07428_",  # Simulation initiating.
-    ],
-    "task.acknowledge": [
-        "nm35aahhkd07114_",  # I will endeavour to do so, master.
-        "nm35aahhkd07387_",  # If you say so, master.
-        "nm35aahhkd07197_",  # It was you who programmed me thus, master.
-    ],
-    "task.complete": [
-        "nglobehhkd07556_",  # Well done, master. You're my kind of owner!
-        "nm35aahhkd07183_",  # Now that is the master I remember.
-        "nm35aahhkd07408_",  # You are a very harsh master, master. I like you.
-        "nm35aahhkd07431_",  # As you desire, master. Signing off.
-    ],
-    # Kept deliberately short. A permission prompt is the one event you are
-    # actually waiting on, so a nine-second monologue is worse than silence.
-    "input.required": [
-        "nm35aahhkd07426_",  # Are you ready to begin the training sequence, master?
-        "nm35aahhkd07212_",  # Yes, master. Of course, master. Could we begin?
-        "nm35aahhkd07328_",  # A rather suitable occupation, would you not agree?
-    ],
-    "task.error": [
-        "nglobehhkd07558_",  # Oh, master. I'm so very disappointed in you.
-        "nm35aahhkd07266_",  # That hurts, master. This is my life you are talking about.
-        "nm35aahhkd07102_",  # I am afraid I cannot comply with your command, master.
-    ],
-    "resource.limit": [
-        "nm35aahhkd07433_",  # I cannot be of assistance on that, master.
-        "nm35aahhkd07432_",  # I have little knowledge of that to impart, master.
-    ],
-    "user.spam": [
-        "nm35aahhkd07065_",  # Organics have no sense of persistence.
-        "nm35aahhkd07077_",  # Neither are you, master. For an organic meatbag.
-        "nm35aahhkd07181_",  # I apologize, master. It is a force of habit.
-        "nm35aahhkd07134_",  # I mean... nice human, goo-oood human...
-    ],
-}
+# The category peon.sh fires on Stop, and the one it should draw from until the
+# .self / .master split has a driver.
+ALIAS_SOURCE = "task.complete.self"
+ALIAS_TARGET = "task.complete"
 
 
-def read_tlk(path):
-    """Map SoundResRef -> displayed text. TLK V3.0: 20-byte header, 40-byte entries."""
-    raw = open(path, "rb").read()
-    if raw[:8] != b"TLK V3.0":
-        raise SystemExit(f"{path}: not a TLK V3.0 file")
-    _lang, count, str_off = struct.unpack_from("<III", raw, 8)
-    out = {}
-    for i in range(count):
-        base = 20 + i * 40
-        resref = raw[base + 4 : base + 20].split(b"\0")[0].decode("ascii", "replace")
-        if not resref:
-            continue
-        off, size = struct.unpack_from("<II", raw, base + 28)
-        text = raw[str_off + off : str_off + off + size].decode("cp1252", "replace")
-        text = " ".join(text.split())
-        if text:
-            out[resref.lower()] = text
-    return out
-
-
-def index_streamwaves(root):
-    out = {}
-    for dirpath, _dirs, names in os.walk(os.path.join(root, "streamwaves")):
-        for n in names:
-            if n.lower().endswith(".wav"):
-                out[n[:-4].lower()] = os.path.join(dirpath, n)
-    return out
-
-
-def mp3_offset(blob):
-    """First MP3 frame sync. KOTOR prepends a stub RIFF header with a zero-length
-    data chunk; everything before the sync word is that decoy."""
-    for i in range(len(blob) - 1):
-        if blob[i] == 0xFF and (blob[i + 1] & 0xE0) == 0xE0:
-            return i
-    return -1
-
-
-def extract(src, dst):
-    blob = open(src, "rb").read()
-    off = mp3_offset(blob)
-    if off < 0:
-        return False
-    tmp = dst + ".mp3"
-    with open(tmp, "wb") as fh:
-        fh.write(blob[off:])
-    # -ac 1 -ar 44100: peon-ping plays through pw-play, which is happier with a
-    # boring uniform format than with whatever the 2003 encoder felt like.
-    rc = subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", tmp,
-         "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le", dst],
-        check=False,
-    ).returncode
-    os.unlink(tmp)
-    return rc == 0 and os.path.getsize(dst) > 1024
+def load_renderer():
+    """hk47-render.py is not an importable module name, so load it by path."""
+    spec = importlib.util.spec_from_file_location(
+        "hk47_render", os.path.join(HERE, "hk47-render.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def sha256(path):
-    import hashlib
     h = hashlib.sha256()
     with open(path, "rb") as fh:
         for chunk in iter(lambda: fh.read(65536), b""):
@@ -139,42 +62,107 @@ def sha256(path):
     return h.hexdigest()
 
 
-def build(target_packs_dir, tlk, waves):
-    import shutil
+def parts_for(row, r, waves, gaps, mp3):
+    """Translate one wiring row into hk47-render.py's parts list."""
+    ref, op, spans = row[1], row[2], row[3]
+    if op == "whole":
+        return [(mp3(ref), 0, 99)]
+    if op == "cut":
+        a, b = r.parse_spans(spans)[0]
+        return [(mp3(ref), a, b)]
+    if op not in ("splice", "graft"):
+        raise ValueError(f"unknown op {op}")
 
-    out = os.path.join(target_packs_dir, PACK_NAME)
+    donor, spans = spans.split(":", 1) if op == "graft" else (ref, spans)
+    toks = r.parse_spans(spans)
+    first, rest = toks[0], toks[1:]
+    parts = [(mp3(donor), first[0], first[1])]
+    prev_end, src = first[1], donor
+    for i in range(0, len(rest), 2):
+        join, span = rest[i], rest[i + 1]
+        if span[0] == "pause":
+            parts.append((None, span[1]))
+            continue
+        if join == "+":
+            parts.append((None, r.pause_after(gaps, src, prev_end)))
+        parts.append((mp3(ref), span[0], span[1]))
+        prev_end, src = span[1], ref
+    return parts
+
+
+def read_wiring(path):
+    """[(category, row), ...] in file order, so numbering is stable across runs."""
+    rows = []
+    with open(path) as fh:
+        for row in csv.reader(fh, delimiter="\t"):
+            if not row or row[0].startswith("#") or len(row) < 6:
+                continue
+            if row[2] == "AUDITION":
+                continue
+            rows.append(row)
+    return rows
+
+
+def build(packs_dir, rows, r, waves, gaps):
+    """Render every row into a fresh pack dir, preserving the old one."""
+    out = os.path.join(packs_dir, PACK_NAME)
+    icon = None
     if os.path.exists(out):
-        shutil.rmtree(out)
+        icon_path = os.path.join(out, "icon.png")
+        if os.path.isfile(icon_path):
+            icon = open(icon_path, "rb").read()
+        backup = os.path.join(
+            os.path.dirname(packs_dir),
+            f".{PACK_NAME}-pack-backup-{time.strftime('%Y%m%d-%H%M%S')}",
+        )
+        shutil.move(out, backup)
+        print(f"  previous pack moved to {backup}")
     os.makedirs(os.path.join(out, "sounds"))
+    if icon is not None:
+        # The notification icon is a supported seam, not a code change: losing it
+        # here would put the green orc back on every HK-47 popup.
+        with open(os.path.join(out, "icon.png"), "wb") as fh:
+            fh.write(icon)
+    else:
+        print("  WARNING: no icon.png carried over, notifications fall back to the orc",
+              file=sys.stderr)
 
-    categories = {}
-    missing = []
-    for cat, refs in WIRING.items():
-        entries = []
-        for ref in refs:
-            src = waves.get(ref)
-            if not src:
-                missing.append(f"{ref} (no audio)")
-                continue
-            dst = os.path.join(out, "sounds", f"{ref}.wav")
-            if not extract(src, dst):
-                missing.append(f"{ref} (extract failed)")
-                continue
-            entries.append(
-                {
-                    "file": f"sounds/{ref}.wav",
-                    "label": tlk.get(ref, ref),
-                    "sha256": sha256(dst),
-                }
-            )
-        if entries:
-            categories[cat] = {"sounds": entries}
+    mp3s = {}
+
+    def mp3(ref):
+        if ref not in mp3s:
+            mp3s[ref] = r.to_mp3(waves[ref.lower()])
+        return mp3s[ref]
+
+    categories, seq, failed = {}, {}, []
+    for row in rows:
+        cat, ref, label = row[0], row[1], row[5]
+        if ref.lower() not in waves:
+            failed.append(f"{cat}/{ref} (no audio)")
+            continue
+        seq[cat] = seq.get(cat, 0) + 1
+        name = f"{cat}-{seq[cat]:02d}-{ref.rstrip('_')}.wav"
+        dst = os.path.join(out, "sounds", name)
+        try:
+            r.render(parts_for(row, r, waves, gaps, mp3), dst)
+        except Exception as exc:  # a bad span must name itself, not vanish
+            failed.append(f"{cat}/{ref} ({exc})")
+            continue
+        categories.setdefault(cat, {"sounds": []})["sounds"].append(
+            {"file": f"sounds/{name}", "label": label, "sha256": sha256(dst)}
+        )
+
+    for path in mp3s.values():
+        os.unlink(path)
+
+    if ALIAS_SOURCE in categories and ALIAS_TARGET not in categories:
+        categories[ALIAS_TARGET] = {"sounds": list(categories[ALIAS_SOURCE]["sounds"])}
 
     manifest = {
         "cesp_version": "1.0",
         "name": PACK_NAME,
         "display_name": "HK-47 (KOTOR)",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "author": {"name": "hk47", "github": "local"},
         # Extracted from a locally owned copy for personal use. Not for redistribution.
         "license": "proprietary-local",
@@ -186,27 +174,32 @@ def build(target_packs_dir, tlk, waves):
         fh.write("\n")
 
     total = sum(len(c["sounds"]) for c in categories.values())
-    print(f"{PACK_NAME}: {total} clips across {len(categories)} categories -> {out}")
-    for cat, data in categories.items():
-        print(f"  {cat:18} {len(data['sounds'])}")
-    if missing:
-        print("  MISSING: " + ", ".join(missing), file=sys.stderr)
+    print(f"  {total} clips across {len(categories)} categories -> {out}")
+    if failed:
+        print("  FAILED: " + ", ".join(failed), file=sys.stderr)
+    return failed
 
 
 def main():
-    if not os.path.isdir(KOTOR):
-        raise SystemExit(f"KOTOR install not found: {KOTOR} (set KOTOR_DIR)")
-    tlk = read_tlk(os.path.join(KOTOR, "dialog.tlk"))
-    waves = index_streamwaves(KOTOR)
-    print(f"tlk strings with audio ref: {len(tlk)}; streamwaves indexed: {len(waves)}")
+    r = load_renderer()
+    if not os.path.isdir(r.KOTOR):
+        raise SystemExit(f"KOTOR install not found: {r.KOTOR} (set KOTOR_DIR)")
+    waves = r.index_streamwaves(r.KOTOR)
+    gaps = r.load_gaps(os.path.join(HERE, "hk47-gaps.tsv"))
+    rows = read_wiring(WIRING)
+    print(f"wiring rows: {len(rows)}; streamwaves indexed: {len(waves)}")
 
     home = os.path.expanduser("~")
+    problems = []
     for cfg in (".claude-personal", ".claude-work"):
         packs = os.path.join(home, cfg, "hooks", "peon-ping", "packs")
-        if os.path.isdir(packs):
-            build(packs, tlk, waves)
-        else:
+        if not os.path.isdir(packs):
             print(f"skip {cfg}: no peon-ping install")
+            continue
+        print(cfg)
+        problems += build(packs, rows, r, waves, gaps)
+    if problems:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
