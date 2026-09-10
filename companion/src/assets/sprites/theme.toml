@@ -1,0 +1,24 @@
+[meta]
+name = "Alfred Pennyworth"
+author = "Alfred"
+frame_size = 128
+
+[animations.idle]
+file = "idle.png"
+frames = 8
+tick_divisor = 3
+
+[animations.attentive]
+file = "attentive.png"
+frames = 6
+tick_divisor = 2
+
+[animations.thinking]
+file = "thinking.png"
+frames = 6
+tick_divisor = 2
+
+[animations.error]
+file = "error.png"
+frames = 1
+tick_divisor = 0

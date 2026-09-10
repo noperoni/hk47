@@ -1,0 +1,59 @@
+[meta]
+name = "HK-47"
+author = "hk47"
+
+# Geometry the draw loop reads instead of hardcoding. With
+# config.sprite.size = 96 the room is drawn at 0.75 and the figure at
+# 0.75 * 4/3 = 1.0, so HK-47 sits at exactly native pixel density.
+[geometry]
+frame_size = 128
+feet_y = 128
+floor_y = 208
+scale = 1.333333
+border = 4
+
+# 256x224 corridor interior in a 4px ship-accent line. chat_ui.rs 9-slices
+# this file at [geometry] border to dress the chat panel in the same frame.
+[backdrop]
+file = "backdrop.png"
+
+[animations.scan_l]
+file = "scan_l.png"
+frames = 2
+tick_divisor = 3
+
+[animations.scan_r]
+file = "scan_r.png"
+frames = 2
+tick_divisor = 3
+
+[animations.idle]
+file = "idle.png"
+frames = 9
+tick_divisor = 3
+
+[animations.idle_alt]
+file = "idle_alt.png"
+frames = 9
+tick_divisor = 3
+
+[animations.attentive]
+file = "attentive.png"
+frames = 9
+tick_divisor = 2
+
+[animations.thinking]
+file = "thinking.png"
+frames = 9
+tick_divisor = 2
+
+[animations.error]
+file = "error.png"
+frames = 9
+tick_divisor = 2
+
+# Assembled but unreferenced: these need AnimState variants that do not
+# exist yet, and an unknown key here warns on every launch.
+#   question.png (9 frames)
+#   permission.png (9 frames)
+#   combat.png (16 frames)

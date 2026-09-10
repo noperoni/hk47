@@ -1,0 +1,21 @@
+# Build artefacts
+companion/target/
+__pycache__/
+*.pyc
+
+# Rendered audition audio: ~39M of output that hk47-render.py rebuilds from the
+# source corpus, which lives outside this repo and is referenced by resref.
+audition/
+
+# --- Deferred, not permanent ---------------------------------------------
+# The sound-pack files are being edited by a second Claude session at the
+# moment this repository is created (2026-09-10). Committing them now would
+# capture a decision record mid-decision. Delete this block and add them once
+# that session has finished.
+hk47-lines.tsv
+hk47-gaps.tsv
+hk47-wiring.tsv
+hk47-candidates.tsv
+hk47-render.py
+.claude/state.json
+# -------------------------------------------------------------------------

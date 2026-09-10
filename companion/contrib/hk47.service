@@ -1,0 +1,17 @@
+[Unit]
+Description=HK-47 - Pixel-art desktop companion
+Documentation=file:///path/to/hk47/companion/README.md
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.cargo/bin/hk47
+Restart=on-failure
+RestartSec=3
+
+# Wayland/GTK environment
+Environment=GDK_BACKEND=wayland
+
+[Install]
+WantedBy=graphical-session.target
