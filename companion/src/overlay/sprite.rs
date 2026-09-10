@@ -758,8 +758,23 @@ pub fn draw_beam_flash(cr: &cairo::Context, beam: &Beam, eye_x: f64, eye_y: f64,
 
 /// Draw a static single-frame image (the diorama backdrop) scaled uniformly by
 /// `scale` from the origin, with nearest-neighbor filtering. Unlike `draw_frame`,
-/// this preserves aspect ratio (no per-axis squash) and paints the whole image —
+/// this preserves aspect ratio (no per-axis squash) and paints the whole image:
 /// it's the room layer the animated sprite is later composited on top of.
+///
+/// Nothing is painted outside the backdrop's own rect. Two ways of filling the slack
+/// left by a resized window were built and rejected on sight, on 2026-09-10:
+///
+///   * Snapping the scale down to whole art pixels and leaving the remainder
+///     transparent. It discards up to a whole step, so a tile a little too small for
+///     the next step up strands the diorama in a wide transparent hole and reads as a
+///     window that failed to paint.
+///   * Bleeding this frame's outer edge outward with `Extend::Pad` to mat the picture.
+///     Master's verdict was that he had not asked for the invisible to become visible,
+///     and that it left the border and the image exactly where they were.
+///
+/// What he wants is the diorama itself sizing up, with the transparent background
+/// staying transparent. That is the caller's job: scale continuously to fit rather
+/// than snapping, so the only gap left is the aspect mismatch.
 pub fn draw_backdrop(cr: &cairo::Context, sheet: &SpriteSheet, scale: f64) {
     cr.save().unwrap();
     cr.scale(scale, scale);

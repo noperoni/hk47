@@ -68,51 +68,100 @@ fn main() {
         let theme = Rc::new(overlay::theme::load_theme(&cfg.sprite.theme));
         let animator = Rc::new(RefCell::new(overlay::sprite::Animator::new(theme.clone())));
 
-        // Diorama geometry. backdrop scale = sprite_size / native_frame_w (controls window size).
-        // HK-47 is rendered at geom.scale × sprite_size and re-anchored so his soles (geom.feet_y
-        // within the frame) land on the diorama's floor line (geom.floor_y within the backdrop).
-        // All four numbers come from the theme, so a repack can re-frame him without a recompile;
-        // for the hk47 pack sprite.size 96 over a 128px frame gives a diorama scale of 0.75, and
-        // geom.scale 4/3 multiplies the figure back to exactly 1.0, native pixel density.
+        // Diorama geometry. The theme owns the four numbers that relate the room to
+        // the figure: HK-47 is rendered at geom.scale × the diorama scale and re-anchored
+        // so his soles (geom.feet_y within the frame) land on the diorama's floor line
+        // (geom.floor_y within the backdrop). All four come from the theme, so a repack
+        // can re-frame him without a recompile.
+        //
+        // The diorama scale itself is NOT computed here: it is derived per draw from the
+        // widget's own allocation, which is what lets the window be resized by hand and
+        // join the tiling layout. See the draw function below.
         let geom = theme.geometry();
-        let sprite_size = cfg.sprite.size as f64;
         let frame_w = animator.borrow().current_sheet().frame_width() as f64;
-        let diorama_scale = sprite_size / frame_w;
-        let hk47_display_size = sprite_size * geom.scale;
-        let frame_scale = hk47_display_size / frame_w;
-        let floor_y_screen = geom.floor_y * diorama_scale;
-        let oy_screen = floor_y_screen - geom.feet_y * frame_scale;
 
-        // Size the drawing area to the backdrop (×scale) when present, else to the sprite.
-        // The window is sized to its content, so this is also the window's size.
+        // The diorama scale at which HK-47's own art lands at exactly 1.0, native pixel
+        // density: for the hk47 pack, geom.scale 4/3 makes that 0.75. The pack is not
+        // built at 1:1 throughout, the room being drawn at 0.75 and only the figure
+        // native, so this rather than 1.0 is where his art stops losing detail.
+        let native_scale = 1.0 / geom.scale;
+
+        // Content size = the diorama at native density. This is a floor, not a fixed
+        // size: the window grows freely from here, but below it his art would fall
+        // under native density, which no amount of filtering gets back.
+        let (min_w, min_h) = match theme.backdrop() {
+            Some(bd) => (
+                (bd.frame_width() as f64 * native_scale).round() as i32,
+                (bd.frame_height() as f64 * native_scale).round() as i32,
+            ),
+            None => (cfg.sprite.size as i32, cfg.sprite.size as i32),
+        };
+        drawing_area.set_content_width(min_w);
+        drawing_area.set_content_height(min_h);
+
+        // Opening size comes from the configured sprite size, exactly as it did when the
+        // window was fixed, so `sprite.size` still says how big he starts. It is only the
+        // initial size now; the compositor and Master's mouse own it after that.
         match theme.backdrop() {
             Some(bd) => {
-                drawing_area.set_content_width((bd.frame_width() as f64 * diorama_scale) as i32);
-                drawing_area.set_content_height((bd.frame_height() as f64 * diorama_scale) as i32);
+                let init = cfg.sprite.size as f64 / frame_w;
+                window.set_default_size(
+                    (bd.frame_width() as f64 * init).round() as i32,
+                    (bd.frame_height() as f64 * init).round() as i32,
+                );
             }
-            None => {
-                drawing_area.set_content_width(cfg.sprite.size as i32);
-                drawing_area.set_content_height(cfg.sprite.size as i32);
-            }
+            None => window.set_default_size(cfg.sprite.size as i32, cfg.sprite.size as i32),
         }
 
         // Attention badge: how many other Claude Code sessions want Master. Fed by
         // flag files a hook drops in the runtime dir; see overlay::badge.
         let badge = Rc::new(Cell::new(overlay::badge::read()));
-        // Disc diameter, tied to the sprite so it scales with the configured size.
-        let badge_size = sprite_size * 0.22;
 
         // Set up frame drawing: backdrop layer (if any) first, then the sprite on top,
         // then the badge above both so it is never hidden behind the diorama frame.
+        //
+        // Every number here is derived from the allocation the compositor handed us
+        // rather than from the configured size, which is the whole of what makes him
+        // resizable and tileable. The scale snaps DOWN to a whole multiple of
+        // `scale_step` and the slack is left transparent, because a diorama letterboxed
+        // in its tile keeps every art pixel square, where stretching to fill the tile
+        // exactly would give uneven pixel runs on art drawn at native density.
         let anim_draw = animator.clone();
         let theme_draw = theme.clone();
         let badge_draw = badge.clone();
-        drawing_area.set_draw_func(move |_area, cr, w, _h| {
+        drawing_area.set_draw_func(move |_area, cr, w, h| {
             let anim = anim_draw.borrow();
             if let Some(bd) = theme_draw.backdrop() {
+                let bw = bd.frame_width() as f64;
+                let bh = bd.frame_height() as f64;
+
+                // Largest scale that fits the box, taken continuously rather than snapped
+                // to whole art pixels. Snapping was built first and rejected: it throws
+                // away up to a whole step, and a tile a little too small for the next
+                // step up strands the diorama in a wide transparent hole. Master wants
+                // the picture itself sizing up, so the only gap left is the aspect
+                // mismatch between his tile and the diorama's own 264:232.
+                //
+                // The cost is uneven pixel runs at non-integer scales, which is the price
+                // of an arbitrary window size on art built at a fixed density. Aspect is
+                // preserved: stretching to fill both axes exactly would close the last
+                // sliver at the cost of squashing the room, which is a worse trade.
+                let diorama_scale = (w as f64 / bw).min(h as f64 / bh);
+                let frame_scale = diorama_scale * geom.scale;
+                let hk47_display_size = frame_w * frame_scale;
+                let floor_y_screen = geom.floor_y * diorama_scale;
+                let oy_screen = floor_y_screen - geom.feet_y * frame_scale;
+
+                // Centre the diorama in whatever box we were given, on whole pixels so
+                // the snapped scale is not undone by a half-pixel translation.
+                let off_x = ((w as f64 - bw * diorama_scale) / 2.0).floor();
+                let off_y = ((h as f64 - bh * diorama_scale) / 2.0).floor();
+                cr.save().unwrap();
+                cr.translate(off_x, off_y);
+
                 overlay::sprite::draw_backdrop(cr, bd, diorama_scale);
                 // Base position: horizontally centred on the floor.
-                let mut ox_screen = (bd.frame_width() as f64 * diorama_scale - hk47_display_size) / 2.0;
+                let mut ox_screen = (bw * diorama_scale - hk47_display_size) / 2.0;
                 // While pacing (Thinking), shift along the floor and mirror the
                 // west-facing walk art when he's heading east.
                 let flip_h = match anim.pace() {
@@ -147,8 +196,8 @@ fn main() {
                 let interior = (
                     ring,
                     ring,
-                    bd.frame_width() as f64 * diorama_scale - ring * 2.0,
-                    bd.frame_height() as f64 * diorama_scale - ring * 2.0,
+                    bw * diorama_scale - ring * 2.0,
+                    bh * diorama_scale - ring * 2.0,
                 );
                 if let Some(beam) = &beam {
                     overlay::sprite::draw_beam(cr, beam, eye_x, eye_y, interior);
@@ -167,10 +216,22 @@ fn main() {
                 if let Some(beam) = &beam {
                     overlay::sprite::draw_beam_flash(cr, beam, eye_x, eye_y, interior);
                 }
+                // Badge last, and anchored to the diorama's own top-right corner rather
+                // than the window's, so it rides the picture instead of floating out in
+                // the transparent slack once he is tiled into a box wider than he is.
+                // Diameter stays tied to the figure, so it grows with him.
+                overlay::badge::draw(
+                    cr,
+                    badge_draw.get(),
+                    bw * diorama_scale,
+                    frame_w * diorama_scale * 0.22,
+                );
+                cr.restore().unwrap();
             } else {
-                overlay::sprite::draw_frame(cr, anim.current_sheet(), anim.current_frame(), sprite_size);
+                let size = (w.min(h)) as f64;
+                overlay::sprite::draw_frame(cr, anim.current_sheet(), anim.current_frame(), size);
+                overlay::badge::draw(cr, badge_draw.get(), w as f64, size * 0.22);
             }
-            overlay::badge::draw(cr, badge_draw.get(), w as f64, badge_size);
         });
 
         // Animation timer
