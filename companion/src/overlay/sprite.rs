@@ -335,6 +335,9 @@ pub struct Animator {
     /// Ticks left in the current idle beat, and how long it was to begin with.
     idle_dwell: u64,
     idle_dwell_total: u64,
+    /// Whether the beam was drawn on the previous tick, so the tick it dies can
+    /// still ask for the redraw that erases it.
+    beam_was_live: bool,
     /// xorshift64 state, seeded at launch. A whole RNG crate for four numbers a
     /// minute would be an indulgence.
     rng: u64,
@@ -364,6 +367,7 @@ impl Animator {
             idle_beat: 0,
             idle_dwell: 0,
             idle_dwell_total: 0,
+            beam_was_live: false,
             rng: (nanos as u64) | 1, // xorshift dies on a zero seed
             pace_x: 0.0,
             pace_sign: -1.0,
@@ -489,9 +493,16 @@ impl Animator {
                 changed = true;
             }
         }
-        if self.beam().is_some() {
-            changed = true; // the beam sweeps every tick, even with the pose frozen
+        // The beam sweeps every tick, even with the pose frozen, so a live beam
+        // always wants a redraw. So does the single tick on which it goes dark:
+        // without it nothing wipes the last wedge off the window, and the held
+        // turn reads as half a second of frozen laser rather than as a droid
+        // standing still with its head round.
+        let beam_live = self.beam().is_some();
+        if beam_live || self.beam_was_live {
+            changed = true;
         }
+        self.beam_was_live = beam_live;
         changed
     }
 
