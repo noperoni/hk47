@@ -30,35 +30,59 @@ fn main() {
     config::write_defaults_if_missing();
     let config = config::load();
 
-    // IPC: spawn socket listener in a background Tokio thread
+    // IPC channel to the GTK thread. The listener behind it is NOT started here:
+    // see connect_startup below.
     let (toggle_tx, toggle_rx) = async_channel::bounded::<()>(8);
-
-    std::thread::spawn(move || {
-        let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-        rt.block_on(async {
-            let socket = tokio::spawn(async move {
-                if let Err(e) = input::socket::listen(toggle_tx).await {
-                    eprintln!("error: socket listener failed: {e}");
-                }
-            });
-            let signal = tokio::spawn(async {
-                input::socket::wait_for_signal().await;
-            });
-            let _ = tokio::join!(socket, signal);
-        });
-    });
 
     let app = gtk4::Application::builder()
         .application_id("com.hk47.desktop")
         .build();
 
-    // Clean up socket on shutdown
+    // The socket is bound by the primary instance and by nothing else.
+    //
+    // It used to be bound before GTK ran at all, which made a second `hk47` unlink
+    // the live listener's socket and rebind it, then discover the primary over
+    // D-Bus and exit, taking the socket file with it. The instance still on screen
+    // was left unreachable: `hk47 quit` answered "connection refused", and the
+    // SUPER+H script reads a failed quit as "he is not running", so it launched yet
+    // another duplicate. `startup` fires exactly once and only on the process that
+    // owns the app id, which is precisely the process that should own the socket.
+    app.connect_startup(move |_| {
+        let tx = toggle_tx.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
+            rt.block_on(async {
+                let socket = tokio::spawn(async move {
+                    if let Err(e) = input::socket::listen(tx).await {
+                        eprintln!("error: socket listener failed: {e}");
+                    }
+                });
+                let signal = tokio::spawn(async {
+                    input::socket::wait_for_signal().await;
+                });
+                let _ = tokio::join!(socket, signal);
+            });
+        });
+    });
+
+    // Clean up socket on shutdown. Safe to register unconditionally: a remote
+    // instance never emits startup or shutdown, so it can never delete the socket
+    // that belongs to the primary.
     app.connect_shutdown(|_| {
         input::socket::cleanup();
     });
 
     let cfg = config.clone();
     app.connect_activate(move |app| {
+        // A second `hk47` launch arrives here as another activate on the primary,
+        // which used to build a whole second diorama in the same process: one pid,
+        // two identical windows, one animator each. Present the one that exists
+        // instead, which also brings him back if `hk47 toggle` had hidden him.
+        if let Some(existing) = app.windows().first() {
+            existing.present();
+            return;
+        }
+
         let window = overlay::window::build(app);
 
         // Create drawing area for sprite (size set below, once theme/backdrop is known)

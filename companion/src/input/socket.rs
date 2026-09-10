@@ -21,15 +21,34 @@ pub fn cleanup() {
 
 /// Listen for commands on the Unix domain socket.
 ///
-/// The payload is a bare verb. `quit` shuts the process down from here; anything
-/// else, including an empty payload, is a toggle and is forwarded through the
-/// channel to the GTK thread, which hides or shows the window. The empty case
-/// keeps older callers working, which signalled a toggle by connecting and
-/// closing without writing anything.
+/// The payload is a bare verb. `quit` shuts the process down from here, `ping` is a
+/// liveness probe that does nothing, and anything else, including an empty payload,
+/// is a toggle and is forwarded through the channel to the GTK thread, which hides
+/// or shows the window. The empty case keeps older callers working, which signalled
+/// a toggle by connecting and closing without writing anything.
+///
+/// Call this from the primary GTK instance only. See `connect_startup` in main.rs.
 pub async fn listen(tx: async_channel::Sender<()>) -> std::io::Result<()> {
     let path = socket_path();
 
-    // Clean up stale socket from previous unclean shutdown (atomic, no TOCTOU)
+    // A socket file is either a live listener or a leftover from an unclean exit,
+    // and connecting to it is the only way to tell those apart. Probe before
+    // unlinking: silently stealing the path from a running instance is what left
+    // one unreachable, so that `hk47 quit` answered "connection refused" and the
+    // SUPER+H script read that as "not running" and launched another duplicate.
+    //
+    // The probe writes `ping` rather than connecting and closing, because an empty
+    // payload is the legacy spelling of `toggle` and would hide his window as a
+    // side effect of asking whether he is there.
+    if let Ok(mut probe) = std::os::unix::net::UnixStream::connect(&path) {
+        let _ = probe.write_all(b"ping");
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AddrInUse,
+            format!("another hk47 already answers on {}", path.display()),
+        ));
+    }
+
+    // Nothing answered, so whatever is there is stale. Remove it (atomic, no TOCTOU).
     match std::fs::remove_file(&path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -68,6 +87,10 @@ pub async fn listen(tx: async_channel::Sender<()>) -> std::io::Result<()> {
                             break; // receiver dropped
                         }
                     }
+                    // Liveness probe from a second instance starting up. Answering
+                    // by accepting the connection is the whole reply; there is
+                    // deliberately nothing to do.
+                    "ping" => {}
                     other => eprintln!("warn: unknown socket command: {other:?}"),
                 }
             }
