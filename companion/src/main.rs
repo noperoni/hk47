@@ -189,25 +189,20 @@ fn main() {
         // rate at which a human answers a permission prompt and costs one
         // readdir of a tmpfs directory that is usually empty.
         //
-        // The error count is also what drives AnimState::Error, on the edge only:
-        // set_state(Idle) cuts to the next idle beat, so calling it every second
-        // would restart the rotation forever and he would never hold a pose.
+        // The badge drives the badge and nothing else. It used to put him into
+        // AnimState::Error on the zero-to-non-zero edge, which parked him in a
+        // nine-frame strip looping every 0.75s until someone typed into the
+        // session that had failed: a background session's failure could hold
+        // him there for hours. Removed at Master's direction on 2026-09-10.
+        // Until each non-idle state has an agreed behaviour of its own, nothing
+        // outside this process may interrupt the idle rotation, whatever gets
+        // pinged. The art and the AnimState variants are kept, unwired.
         let badge_poll = badge.clone();
-        let anim_badge = animator.clone();
         let da_badge = drawing_area.clone();
         glib::timeout_add_local(Duration::from_secs(1), move || {
             let current = overlay::badge::read();
-            let previous = badge_poll.get();
-            if current != previous {
+            if current != badge_poll.get() {
                 badge_poll.set(current);
-                if (current.errors > 0) != (previous.errors > 0) {
-                    let state = if current.errors > 0 {
-                        overlay::sprite::AnimState::Error
-                    } else {
-                        overlay::sprite::AnimState::Idle
-                    };
-                    anim_badge.borrow_mut().set_state(state);
-                }
                 da_badge.queue_draw();
             }
             glib::ControlFlow::Continue

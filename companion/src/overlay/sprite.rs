@@ -457,6 +457,11 @@ impl Animator {
     /// Passing Idle hands him back to the idle rotation, resuming at the *next*
     /// beat rather than restarting it, so returning from a task does not snap
     /// him into the same pose every single time.
+    ///
+    /// Uncalled since the badge stopped driving the body on 2026-09-10: the
+    /// idle rotation is the only agreed behaviour, so nothing may interrupt it.
+    /// Kept, with its art, for the states that will earn a driver later.
+    #[allow(dead_code)]
     pub fn set_state(&mut self, state: AnimState) {
         if state == AnimState::Idle {
             self.enter_idle_beat((self.idle_beat + 1) % IDLE_BEATS.len());
