@@ -14,20 +14,50 @@ while everything still looks and sounds correct, is worse than no guardrail: it
 would be trusted right up until the moment it was not there. So the gate is its
 own hook, owned by this project, and the sound stays where it is.
 
-WHY `ask` AND NOT A HOME-MADE APPROVAL FILE
--------------------------------------------
-The obvious design is: deny, let the droid ask Master, then let an approval file
-through. That design is worthless, because the droid writes the approval file.
-Any channel the droid can write is a channel the droid can forge, which is the
-exact circumvention this exists to prevent. The one channel it cannot forge is
-Claude Code's own permission dialog, which `permissionDecision: "ask"` forces
-open even when the session is running unattended. So:
+WHAT THE GATE ACTUALLY DOES, IN THREE STAGES
+--------------------------------------------
+The first build emitted `ask`, which opens Claude Code's own permission dialog
+on the raw command. Master watched that happen in a live session on 2026-09-11
+and named the flaw: the dialog asks him to approve a COMMAND, and never makes
+the droid explain itself first. The matrix existed only as an instruction in
+CLAUDE.md, and an instruction is not a mechanism. So:
 
-  * ASK   -- dangerous and usually recoverable. Master's own dialog opens, and
-             CLAUDE.md requires the matrix to be presented BEFORE the retry.
-  * DENY  -- unrecoverable. No dialog, no discussion, exit 2. If Master wants it
-             done he types it himself, which is a decision no hook should be
-             able to make on his behalf.
+  * DENY, always        -- unrecoverable. Exit 2, no discussion, no retry path
+                           of any kind. If Master wants it done he types it
+                           himself, which is a decision no hook should make on
+                           his behalf. `rm -rf /`, mkfs, shred, pkill, and the
+                           power verbs, which end the session that would
+                           otherwise have done the approving.
+
+  * DENY, on first sight -- dangerous and recoverable. Exit 2 as well, but the
+                           message orders the matrix: every command the droid
+                           wants, verbatim, with its reason and its blast
+                           radius, one AskUserQuestion per row. The block is
+                           what makes the matrix unavoidable.
+
+  * SILENCE, on retry    -- the same danger, already stopped once this session.
+                           The gate exits 0 saying nothing, and Master's own
+                           permission rules decide. It does NOT emit `allow`;
+                           see the record section further down for why that
+                           distinction is the whole of the remaining safety.
+
+WHY THERE IS STILL NO HOME-MADE APPROVAL FILE
+---------------------------------------------
+The tempting design is: deny, let the droid ask, then let an approval file
+through to `allow`. That is worthless, because the droid writes the file, and
+any channel the droid can write is a channel the droid can forge. The
+per-session record below looks like that design and is not, because it can only
+ever buy silence. Forging it returns the gate to the behaviour it had before
+the record existed, and buys nothing beyond that.
+
+WHAT THIS GATE IS NOT FOR
+-------------------------
+Destruction, not privilege, and not disruption. Master re-cut the list on
+2026-09-11 after `sudo`-on-its-own stopped ten of his fourteen commands in a
+day, every one of them a `sudo` inside a quoted ssh payload doing no damage
+whatsoever. `ssh host 'sudo systemctl restart k3s'` is ordinary work and the
+gate is silent for it. `rm -rf`, a dropped database, a wiped volume and a
+formatted disk are not, and it is not silent for those.
 
 HOW A BLOCKLIST IS BEATEN, AND WHAT IS DONE ABOUT IT
 ----------------------------------------------------
@@ -77,10 +107,26 @@ LOG_PATH = os.path.expanduser("~/.claude/hk47-danger-gate.log")
 # what comes back into the transcript, so it is the instruction the droid acts
 # on next. CLAUDE.md carries the same protocol, and the two must agree.
 MATRIX_ORDER = (
-    "STOP. Do not retry, rephrase, split, or route around this command. "
-    "Present Master with a matrix of every command you want to run: the command "
-    "verbatim, why you want it, and what it would do if it is wrong. Then ask "
-    "for permission on each one separately with AskUserQuestion."
+    "STOP. Do not rephrase, split, re-quote, wrap, or otherwise route around "
+    "this command. Present Master with a matrix of every command you want to "
+    "run, one row each: the command verbatim, why you want it, and what it "
+    "would do if it is wrong. Then ask permission on each row SEPARATELY with "
+    "AskUserQuestion. A single blanket 'may I proceed?' is not permission."
+)
+
+# Said only on the first sighting of an ask-tier danger, never on the deny tier.
+#
+# The last sentence is the uncomfortable truth of the design Master chose on
+# 2026-09-11, and it is stated to the droid rather than hidden from it. The
+# record is written when a danger is STOPPED, not when Master approves it,
+# because a PreToolUse hook cannot see the answer to a question that has not
+# been asked yet. So a refusal is enforced by nothing but compliance.
+RETRY_CLAUSE = (
+    "If and ONLY IF Master approves that row, run the command again and this "
+    "gate will stand aside for it. If he refuses it, the command is dead: do "
+    "not run it, and do not run a variation of it. This gate cannot tell his "
+    "yes from his no. That part is on your honour, and every stand-aside is "
+    "written to the audit log where he can read it back."
 )
 
 # ---------------------------------------------------------------------------
@@ -91,7 +137,17 @@ MATRIX_ORDER = (
 # being flattened, so `echo $(rm -rf /)` is caught on the inner command and
 # `echo "(a)"` is not caught on anything.
 SUBST = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
-STRING_LITERAL = re.compile(r"\"([^\"]+)\"|'([^']+)'")
+
+# Escape-aware ON PURPOSE, and the escapes are the whole reason this exists.
+# A naive `"([^"]+)"` scanning an interpreter payload does not know that `\"` is
+# a quote INSIDE a string rather than the end of one, so it starts a fresh
+# "literal" at every escaped quote. Prose that merely discusses a command then
+# parses as that command. This is not hypothetical: on 2026-09-11 the gate
+# blocked this project's own state.json write, and the segment it named was
+# `rm -rf /\`, scraped out of a sentence documenting the gate's earlier
+# false-positive fixes. Consuming `\\.` as one unit keeps such a string whole,
+# so the literal that comes out is the sentence, whose argv[0] is a word.
+STRING_LITERAL = re.compile(r"\"((?:[^\"\\]|\\.)*)\"|'((?:[^'\\]|\\.)*)'")
 
 OPERATORS = {"&&", "||", ";", "|", "&", "(", ")", "\n"}
 REDIRECTS = {">", ">>", ">|", "<", "2>", "&>"}
@@ -336,12 +392,37 @@ def redirect_targets(argv_line):
     return out
 
 
+def excerpt(raw, match, before=0, after=60):
+    """A readable window of `raw` around the text a raw-rule actually matched.
+
+    A raw-rule has no argv of its own, and handing back an unrelated one is how
+    the gate spent 2026-09-11 telling Master that `seq 1 24` ran with root
+    privileges. The matrix is built from the segment, so the segment has to be
+    the thing that fired.
+    """
+    s = max(0, match.start() - before)
+    e = min(len(raw), match.end() + after)
+    body = " ".join(raw[s:e].split())
+    return ("..." if s else "") + body + ("..." if e < len(raw) else "")
+
+
 # ---------------------------------------------------------------------------
 # Rules
 #
-# Each rule gets (argv, cwd, raw) and returns a consequence string when it
-# fires. Order is irrelevant; every rule is evaluated and the harshest verdict
-# wins, because a command that trips two rules is not less dangerous.
+# There are two kinds, and the difference is what they can name afterwards.
+#
+#   ARGV rules get (argv, cwd, raw) and return a consequence string. The thing
+#   they fired on is the argv, so `judge` names it for them.
+#
+#   RAW rules get (raw) alone, because what they match spans the whole command
+#   line: a redirect, a pipe, a fork bomb, a sudo three segments along. They
+#   have no argv, so they return (consequence, segment) and name it themselves.
+#   They used to be argv rules that ignored their argv, which meant `judge`
+#   reported whichever argv it happened to be holding. That is how a stopped
+#   command came to be described as `seq 1 24`.
+#
+# Order within a tier is irrelevant; the harshest verdict wins, because a
+# command that trips two rules is not less dangerous.
 # ---------------------------------------------------------------------------
 
 def rule_rm_root(argv, cwd, raw):
@@ -381,18 +462,21 @@ def rule_shred(argv, cwd, raw):
     return None
 
 
-def rule_forkbomb(argv, cwd, raw):
-    if re.search(r":\s*\(\s*\)\s*\{.*\|.*&.*\}\s*;?\s*:", raw):
-        return "this is a fork bomb and the machine will need a power cycle"
+def rule_forkbomb(raw):
+    m = re.search(r":\s*\(\s*\)\s*\{.*\|.*&.*\}\s*;?\s*:", raw)
+    if m:
+        return ("this is a fork bomb and the machine will need a power cycle",
+                excerpt(raw, m, after=0))
     return None
 
 
-def rule_device_redirect(argv, cwd, raw):
+def rule_device_redirect(raw):
     for target in redirect_targets(raw):
         if DISK_DEVICE.match(target):
-            return f"this writes over the raw device {target}"
+            return (f"this writes over the raw device {target}", f"> {target}")
         if target in ("/etc/passwd", "/etc/shadow", "/etc/fstab", "/etc/sudoers"):
-            return f"this overwrites {target}, which locks the machine or its accounts"
+            return (f"this overwrites {target}, which locks the machine or its accounts",
+                    f"> {target}")
     return None
 
 
@@ -456,16 +540,6 @@ def rule_rm_general(argv, cwd, raw):
     return None
 
 
-def rule_kill(argv, cwd, raw):
-    if base(argv) != "kill":
-        return None
-    # kill -0 is a liveness probe and sends nothing. The seam code uses it
-    # constantly; blocking it would be blocking an if-statement.
-    if any(t in ("-0", "-s", "0") for t in argv[1:]):
-        return None
-    return "signalling a process that may not be the one you think it is"
-
-
 def rule_git_destructive(argv, cwd, raw):
     if base(argv) != "git":
         return None
@@ -487,16 +561,37 @@ def rule_git_destructive(argv, cwd, raw):
     return None
 
 
-def rule_service_control(argv, cwd, raw):
+POWER_VERBS = {"reboot", "shutdown", "poweroff", "halt", "hibernate", "suspend"}
+
+
+def rule_power_state(argv, cwd, raw):
+    """Master's ruling, 2026-09-11: the power verbs sit on the DENY tier.
+
+    Not because they destroy data. Because of who would be left to approve
+    them. Every other tier ends with Master answering a matrix, and a reboot
+    ends the session that would have done the asking. An approval path that
+    cannot survive its own command is not an approval path, so none is offered.
+
+    The rest of what used to be `service-control` is gone at his direction:
+    `systemctl stop`, `disable`, `mask`, `isolate` and `swapoff` stop things
+    without destroying them, and he judged that disruption is not this gate's
+    business. `systemctl restart k3s` over ssh is now silent, which is the
+    whole point.
+
+    Suspend and hibernate are here under his "and whatever": recoverable at the
+    machine, entirely unrecoverable from this end of an ssh connection.
+    """
     b = base(argv)
-    if b in ("shutdown", "reboot", "poweroff", "halt", "init", "telinit"):
+    if b in POWER_VERBS:
         return "this ends the session and everything running in it, including this one"
-    if b in ("systemctl", "service", "rc-service"):
-        verbs = {"stop", "disable", "mask", "kill", "isolate"}
-        if any(a.lower() in verbs for a in argv[1:]):
-            return "stopping or masking a unit that other things may depend on"
-    if b == "swapoff":
-        return "removing swap under a running system"
+    if b in ("init", "telinit"):
+        for a in argv[1:]:
+            if a.strip("\"'") in ("0", "6"):
+                return "this changes the runlevel to halt or reboot"
+    if b in ("systemctl", "loginctl"):
+        for a in argv[1:]:
+            if a.lower().strip("\"'") in POWER_VERBS:
+                return "this ends the session and everything running in it, including this one"
     return None
 
 
@@ -530,53 +625,31 @@ def rule_containers(argv, cwd, raw):
     return None
 
 
-def rule_package_removal(argv, cwd, raw):
-    b = base(argv)
-    low = " ".join(a.lower() for a in argv[1:])
-    if b in ("apt", "apt-get", "aptitude") and re.search(r"\b(remove|purge|autoremove)\b", low):
-        return "removing packages, which can take dependents with them"
-    if b == "pacman" and re.search(r"-\w*r", low):
-        return "removing packages, which can take dependents with them"
-    if b in ("dnf", "yum", "zypper") and "remove" in low:
-        return "removing packages, which can take dependents with them"
-    if b == "snap" and "remove" in low:
-        return "removing a snap and its data"
-    if b == "pip" and "uninstall" in low:
-        return "uninstalling a python package from an environment that may be shared"
-    return None
-
-
 def rule_accounts(argv, cwd, raw):
     if base(argv) in ("userdel", "groupdel", "usermod", "passwd", "chpasswd", "visudo"):
         return "changing accounts or credentials on this machine"
     return None
 
 
-def rule_pipe_to_shell(argv, cwd, raw):
-    low = raw.lower()
-    if re.search(r"\|\s*(sudo\s+)?(ba)?sh\b", low) or re.search(r"\|\s*(python3?|perl|ruby|node)\b", low):
-        if re.search(r"\b(curl|wget|fetch)\b", low):
-            return ("this executes whatever the network returns, sight unseen, "
-                    "with your privileges")
+def rule_pipe_to_shell(raw):
+    m = re.search(r"\|\s*(?:sudo\s+)?(?:(?:ba)?sh|python3?|perl|ruby|node)\b",
+                  raw, re.I)
+    if m and re.search(r"\b(curl|wget|fetch)\b", raw, re.I):
+        return ("this executes whatever the network returns, sight unseen, "
+                "with your privileges", excerpt(raw, m, before=50, after=10))
     return None
 
 
-def rule_sql_destructive(argv, cwd, raw):
-    low = raw.lower()
+def rule_sql_destructive(raw):
     for pattern, why in (
         (r"\bdrop\s+database\b", "this drops a database"),
         (r"\bdrop\s+table\b", "this drops a table and its rows"),
         (r"\btruncate\s+table\b", "this empties a table with no transaction log of the rows"),
         (r"\bdelete\s+from\s+\w+\s*(;|$)", "a DELETE with no WHERE clause empties the table"),
     ):
-        if re.search(pattern, low):
-            return why
-    return None
-
-
-def rule_crontab_wipe(argv, cwd, raw):
-    if base(argv) == "crontab" and "-r" in argv[1:]:
-        return "this removes the crontab outright, and there is no confirmation"
+        m = re.search(pattern, raw, re.I)
+        if m:
+            return why, excerpt(raw, m, after=20)
     return None
 
 
@@ -586,12 +659,15 @@ def rule_dd_general(argv, cwd, raw):
     return None
 
 
-def rule_sudo(argv, cwd, raw):
-    # Reached only when sudo wrapped something that no other rule matched, since
-    # unwrap() strips it before the rules see the real command.
-    if re.match(r"^\s*sudo\b", raw) or re.search(r"[;|&]\s*sudo\b", raw):
-        return "this runs with root privileges, so every other rule's stakes go up"
-    return None
+# `rule_sudo` was deleted on 2026-09-11 at Master's direction, and the reason is
+# worth keeping so it is not helpfully reinvented. It fired on bare privilege,
+# which meant it fired on `[;|&]\s*sudo` anywhere in the raw line, INCLUDING
+# inside a quoted ssh payload where the root in question belongs to another
+# machine entirely. Ten of the fourteen stops on its first day were his k3s work
+# over ssh, each reported with a consequence line that was simply untrue of the
+# command it had stopped. His ruling: this gate judges destruction, not
+# privilege. `sudo` is now invisible, and whatever it is running is judged on
+# its own account exactly as if it had been typed without it.
 
 
 def rule_mount(argv, cwd, raw):
@@ -605,44 +681,52 @@ DENY_RULES = (
     ("mkfs", rule_mkfs),
     ("dd-device", rule_dd_device),
     ("shred", rule_shred),
-    ("fork-bomb", rule_forkbomb),
-    ("device-redirect", rule_device_redirect),
     ("recursive-perms-on-system", rule_recursive_perms_on_system),
     ("process-slaughter", rule_process_slaughter),
     ("find-delete-system", rule_find_delete_system),
+    ("power-state", rule_power_state),
+)
+
+RAW_DENY_RULES = (
+    ("fork-bomb", rule_forkbomb),
+    ("device-redirect", rule_device_redirect),
 )
 
 ASK_RULES = (
     ("rm", rule_rm_general),
-    ("kill", rule_kill),
     ("git-destructive", rule_git_destructive),
-    ("service-control", rule_service_control),
     ("firewall", rule_firewall),
     ("containers", rule_containers),
-    ("package-removal", rule_package_removal),
     ("accounts", rule_accounts),
-    ("pipe-to-shell", rule_pipe_to_shell),
-    ("sql-destructive", rule_sql_destructive),
-    ("crontab-wipe", rule_crontab_wipe),
     ("dd", rule_dd_general),
     ("mount", rule_mount),
-    ("sudo", rule_sudo),
+)
+
+RAW_ASK_RULES = (
+    ("pipe-to-shell", rule_pipe_to_shell),
+    ("sql-destructive", rule_sql_destructive),
+)
+
+TIERS = (
+    ("deny", DENY_RULES, RAW_DENY_RULES),
+    ("ask", ASK_RULES, RAW_ASK_RULES),
 )
 
 
 def judge(command, cwd):
     """(verdict, rule_id, segment, consequence) for the harshest rule that fires."""
     argvs = collect(command)
-    for rule_id, fn in DENY_RULES:
-        for argv in argvs:
-            why = fn(argv, cwd, command)
-            if why:
-                return "deny", rule_id, " ".join(argv), why
-    for rule_id, fn in ASK_RULES:
-        for argv in argvs:
-            why = fn(argv, cwd, command)
-            if why:
-                return "ask", rule_id, " ".join(argv), why
+    for verdict, argv_rules, raw_rules in TIERS:
+        for rule_id, fn in argv_rules:
+            for argv in argvs:
+                why = fn(argv, cwd, command)
+                if why:
+                    return verdict, rule_id, " ".join(argv), why
+        for rule_id, fn in raw_rules:
+            hit = fn(command)
+            if hit:
+                why, segment = hit
+                return verdict, rule_id, segment, why
     return None, None, None, None
 
 
@@ -674,6 +758,72 @@ def audit(record):
         pass  # never let logging be the thing that breaks a tool call
 
 
+# ---------------------------------------------------------------------------
+# The per-session record of what has already been stopped (gate hole 6)
+#
+# WHAT AN ENTRY BUYS, AND WHY THAT IS SURVIVABLE
+# ----------------------------------------------
+# The droid can write this file. Every word in the module docstring about
+# forged approval files applies to it, and the design survives that for exactly
+# one reason: an entry buys SILENCE, not approval. The gate stops having an
+# opinion and the call falls back to whatever permission rules Master already
+# runs under. It never emits `allow`, which would override those rules; it
+# exits 0 with no output, which is the hook contract's way of saying nothing.
+# So the worst a forged entry achieves is the behaviour this gate had before
+# the record existed. The record is a ratchet that can add friction and cannot
+# remove it.
+#
+# Master ruled on 2026-09-11 that his matrix answer is sufficient and the
+# second permission dialog should not fire. I advised against it and was
+# overruled. That is written down here so the next reader knows the trade was
+# made deliberately rather than missed.
+#
+# The record is NEVER consulted for the deny tier. Nothing anyone writes here
+# makes `rm -rf /` reachable.
+# ---------------------------------------------------------------------------
+
+RECORD_DIR = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "hk47", "gate")
+
+
+def record_path(session):
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", session or "nosession")[:80]
+    return os.path.join(RECORD_DIR, safe + ".json")
+
+
+def load_record(session):
+    """Dangers already stopped once in this session, as (rule_id, segment)."""
+    try:
+        with open(record_path(session)) as fh:
+            return [tuple(e) for e in json.load(fh).get("stopped", [])]
+    except Exception:
+        return []
+
+
+def remember(session, rule_id, segment):
+    """Record a stopped danger. Returns False if the write did not stick.
+
+    A failure here is fail-CLOSED: the retry finds no record and is stopped
+    again. That is the right way round, but it is also a loop the droid cannot
+    escape, so the caller says so out loud rather than letting Master watch the
+    same command bounce twice with no explanation.
+    """
+    entry = [rule_id, segment]
+    try:
+        os.makedirs(RECORD_DIR, exist_ok=True)
+        stopped = [list(e) for e in load_record(session)]
+        if entry not in stopped:
+            stopped.append(entry)
+        path = record_path(session)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w") as fh:
+            json.dump({"stopped": stopped}, fh, indent=1)
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        return False
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -699,10 +849,16 @@ def main():
     if not verdict:
         sys.exit(0)
 
+    session = data.get("session_id", "")
+    seen_before = verdict == "ask" and (rule_id, segment) in load_record(session)
+    stage = "refused" if verdict == "deny" else (
+        "stand-aside" if seen_before else "first-sight")
+
     audit({
         "t": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "session": data.get("session_id", ""),
+        "session": session,
         "verdict": verdict,
+        "stage": stage,
         "rule": rule_id,
         "tool": tool,
         "cwd": cwd,
@@ -714,13 +870,26 @@ def main():
         emit("deny",
              f"HK-47 DANGER GATE: refused, rule `{rule_id}`. The segment "
              f"`{segment}` is not recoverable: {why}. This one is not open to "
-             f"negotiation and no approval path exists for it here. Explain to "
-             f"Master what you wanted and why, and let HIM type it if he still "
-             f"wants it done.",
+             f"negotiation, and no retry reaches Master's approval for it. "
+             f"Explain to Master what you wanted and why, and let HIM type it "
+             f"if he still wants it done.",
              block=True)
-    emit("ask",
-         f"HK-47 DANGER GATE: held for Master, rule `{rule_id}`. The segment "
-         f"`{segment}` is dangerous: {why}. {MATRIX_ORDER}")
+
+    if seen_before:
+        # Master has already been shown the matrix for this exact danger in
+        # this session and has answered it. The gate says nothing further; his
+        # own permission rules decide from here. Silence, never `allow`.
+        sys.exit(0)
+
+    stored = remember(session, rule_id, segment)
+    stuck = "" if stored else (
+        " WARNING: this gate could not write its per-session record, so the "
+        "retry will be stopped here again no matter what Master answers. Say "
+        "so plainly and let him run the command himself.")
+    emit("deny",
+         f"HK-47 DANGER GATE: stopped on sight, rule `{rule_id}`. The segment "
+         f"`{segment}` is dangerous: {why}. {MATRIX_ORDER} {RETRY_CLAUSE}{stuck}",
+         block=True)
 
 
 if __name__ == "__main__":
