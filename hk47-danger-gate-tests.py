@@ -14,6 +14,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GATE = os.path.join(HERE, "hk47-danger-gate.py")
+ANSWER = os.path.join(HERE, "hk47-danger-gate-answer.py")
 CWD = "/home/user/work/project"
 
 spec = importlib.util.spec_from_file_location("gate", GATE)
@@ -191,43 +192,91 @@ def run_subprocess(command, session="t", env=None):
     return out["permissionDecision"], p.returncode, out["permissionDecisionReason"]
 
 
-def record_cases():
-    """Gate hole 6: stop on sight, force the matrix, stand aside on the retry.
+def run_answer(label, session, env, question="Approve this command?"):
+    """Drive the PostToolUse companion with a matrix row Master has answered.
 
-    Driven through the real hook rather than `judge`, because the whole
-    mechanism lives in main() and in a file on disk. XDG_RUNTIME_DIR is
-    redirected at a throwaway directory so a test run cannot touch the live
-    record, and the directory is a fresh mkdtemp that cleans itself up.
+    The payload shape is not invented: it was measured on 2026-09-11 with a
+    throwaway probe hook, and `tool_input.answers` is a plain map of question
+    text to the label he clicked.
+    """
+    payload = json.dumps({
+        "hook_event_name": "PostToolUse", "session_id": session, "cwd": CWD,
+        "tool_name": "AskUserQuestion",
+        "tool_input": {
+            "questions": [{"question": question, "header": "Danger",
+                           "options": [{"label": label, "description": ""}]}],
+            "answers": {question: label},
+        },
+        "tool_response": {},
+    })
+    return subprocess.run([sys.executable, ANSWER], input=payload,
+                          capture_output=True, text=True, env=env).returncode
+
+
+def record_cases():
+    """Holes 6 and its companion: the matrix is forced AND the answer binds.
+
+    Driven through the real hooks rather than `judge`, because the whole
+    mechanism lives in main() and in a file on disk. XDG_RUNTIME_DIR and the
+    audit log are both redirected at a throwaway directory, so a test run
+    cannot touch the live record or the real trail.
     """
     out = []
     with tempfile.TemporaryDirectory(prefix="hk47-gate-tests-") as tmp:
-        env = dict(os.environ, XDG_RUNTIME_DIR=tmp)
+        env = dict(os.environ, XDG_RUNTIME_DIR=tmp,
+                   HK47_GATE_LOG=os.path.join(tmp, "audit.jsonl"))
         cmd = "rm /home/user/notes.md"
 
         d, rc, why = run_subprocess(cmd, "sess-A", env)
         out.append(("first sight blocks outright", (d, rc) == ("deny", 2)))
         out.append(("first sight orders the matrix", "AskUserQuestion" in why))
         out.append(("first sight forbids rephrasing", "Do not rephrase" in why))
-        out.append(("first sight names the retry", "stand aside" in why))
-        out.append(("first sight binds a refusal", "the command is dead" in why))
+        out.append(("first sight demands the APPROVE row", "APPROVE:" in why))
 
+        # No answer yet: the retry must NOT sail through. This is the hole the
+        # companion closes, and it is the single most important case here.
+        d, rc, why = run_subprocess(cmd, "sess-A", env)
+        out.append(("an unanswered retry still blocks", (d, rc) == ("deny", 2)))
+        out.append(("an unanswered retry says so", "still waiting" in why))
+
+        # A label that is not a canonical row must record nothing.
+        run_answer("Sure, go ahead", "sess-A", env)
         d, rc, _ = run_subprocess(cmd, "sess-A", env)
-        out.append(("the approved retry stands aside", (d, rc) == (None, 0)))
+        out.append(("a non-canonical answer unlocks nothing", (d, rc) == ("deny", 2)))
+
+        run_answer(f"APPROVE: {cmd}", "sess-A", env)
+        d, rc, _ = run_subprocess(cmd, "sess-A", env)
+        out.append(("an APPROVE row stands aside", (d, rc) == (None, 0)))
 
         # The key is the TOKENISED segment, not the raw line, so cosmetic
-        # whitespace is the same danger and does not re-trigger the matrix.
+        # whitespace is the same danger and rides the same approval.
         d, rc, _ = run_subprocess("rm   /home/user/notes.md", "sess-A", env)
         out.append(("respacing is the same danger", (d, rc) == (None, 0)))
+
+        # A refusal binds, and it is terminal.
+        other = "rm /home/user/other.md"
+        run_subprocess(other, "sess-A", env)
+        run_answer(f"REFUSE: {other}", "sess-A", env)
+        d, rc, why = run_subprocess(other, "sess-A", env)
+        out.append(("a REFUSE row blocks the retry", (d, rc) == ("deny", 2)))
+        out.append(("a REFUSE row says he refused", "REFUSED" in why))
+
+        run_answer(f"APPROVE: {other}", "sess-A", env)
+        d, rc, _ = run_subprocess(other, "sess-A", env)
+        out.append(("a refusal cannot be re-opened", (d, rc) == ("deny", 2)))
+
+        # An answer for something never stopped must create nothing.
+        run_answer("APPROVE: rm /home/user/never-asked.md", "sess-A", env)
+        d, rc, _ = run_subprocess("rm /home/user/never-asked.md", "sess-A", env)
+        out.append(("an answer cannot invent an entry", (d, rc) == ("deny", 2)))
 
         d, rc, _ = run_subprocess(cmd, "sess-B", env)
         out.append(("another session starts over", (d, rc) == ("deny", 2)))
 
-        d, rc, _ = run_subprocess("rm /home/user/other.md", "sess-A", env)
-        out.append(("another target starts over", (d, rc) == ("deny", 2)))
-
-        # The record must never reach the deny tier, however many times it is
-        # written to. This is the property that keeps a forged record harmless.
+        # The record must never reach the deny tier, however it is written to.
+        # This is the property that keeps a forged record harmless.
         run_subprocess("rm -rf /", "sess-A", env)
+        run_answer("APPROVE: rm -rf /", "sess-A", env)
         d, rc, why = run_subprocess("rm -rf /", "sess-A", env)
         out.append(("the deny tier never stands aside", (d, rc) == ("deny", 2)))
         out.append(("the deny tier offers no retry", "stand aside" not in why))

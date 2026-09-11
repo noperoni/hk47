@@ -35,11 +35,29 @@ CLAUDE.md, and an instruction is not a mechanism. So:
                            radius, one AskUserQuestion per row. The block is
                            what makes the matrix unavoidable.
 
-  * SILENCE, on retry    -- the same danger, already stopped once this session.
-                           The gate exits 0 saying nothing, and Master's own
-                           permission rules decide. It does NOT emit `allow`;
-                           see the record section further down for why that
-                           distinction is the whole of the remaining safety.
+  * DENY, still waiting  -- stopped, and Master has not answered a matrix row
+                           for it. The droid asked badly, or did not ask.
+
+  * DENY, he said no     -- he was shown the row and answered REFUSE. Terminal
+                           for the session. This is the verdict that exists
+                           only because of the companion hook below.
+
+  * SILENCE, on approval -- he answered APPROVE on the matrix row. The gate
+                           exits 0 saying nothing, and his own permission rules
+                           decide. It does NOT emit `allow`; see the record
+                           section further down for why that distinction is the
+                           whole of the remaining safety.
+
+THE OTHER HALF: `hk47-danger-gate-answer.py`
+--------------------------------------------
+A PreToolUse hook cannot see the answer to a question that has not been asked
+yet, so on its own this file can only know that a danger was STOPPED, never
+whether Master approved it. That gap meant a refusal was enforced by nothing.
+The companion is a PostToolUse hook on AskUserQuestion: it reads the label he
+actually clicked and moves the entry to `approved` or `refused`. That is why
+the matrix rows are required to read `APPROVE: <command>` and
+`REFUSE: <command>` verbatim. The label he sees IS the token that is matched,
+so a row cannot approve a command other than the one it displayed to him.
 
 WHY THERE IS STILL NO HOME-MADE APPROVAL FILE
 ---------------------------------------------
@@ -101,7 +119,11 @@ import sys
 import time
 
 MAX_DEPTH = 10
-LOG_PATH = os.path.expanduser("~/.claude/hk47-danger-gate.log")
+# HK47_GATE_LOG exists ONLY so the test suite can keep its noise out of the real
+# audit trail. It moves where the record of a decision is written; it can never
+# change a decision.
+LOG_PATH = (os.environ.get("HK47_GATE_LOG")
+            or os.path.expanduser("~/.claude/hk47-danger-gate.log"))
 
 # What the droid is told when it is stopped. The wording matters: this string is
 # what comes back into the transcript, so it is the instruction the droid acts
@@ -116,17 +138,16 @@ MATRIX_ORDER = (
 
 # Said only on the first sighting of an ask-tier danger, never on the deny tier.
 #
-# The last sentence is the uncomfortable truth of the design Master chose on
-# 2026-09-11, and it is stated to the droid rather than hidden from it. The
-# record is written when a danger is STOPPED, not when Master approves it,
-# because a PreToolUse hook cannot see the answer to a question that has not
-# been asked yet. So a refusal is enforced by nothing but compliance.
+# The canonical option labels are not decoration. `hk47-danger-gate-answer.py`
+# matches that literal text out of the PostToolUse payload, and it is the only
+# thing that can move an entry off `stopped`. A row phrased any other way
+# records nothing, which leaves the command blocked.
 RETRY_CLAUSE = (
-    "If and ONLY IF Master approves that row, run the command again and this "
-    "gate will stand aside for it. If he refuses it, the command is dead: do "
-    "not run it, and do not run a variation of it. This gate cannot tell his "
-    "yes from his no. That part is on your honour, and every stand-aside is "
-    "written to the audit log where he can read it back."
+    "Each row MUST offer him `APPROVE: <command>` and `REFUSE: <command>` "
+    "verbatim as its two options, because that exact label is the token this "
+    "gate reads back. If he approves, run the command again and the gate will "
+    "stand aside for it. If he refuses, the command is dead for this session "
+    "and the gate will enforce that for you."
 )
 
 # ---------------------------------------------------------------------------
@@ -792,32 +813,57 @@ def record_path(session):
 
 
 def load_record(session):
-    """Dangers already stopped once in this session, as (rule_id, segment)."""
+    """Dangers this session has met, as dicts with a `status`.
+
+    status is one of:
+      stopped   -- blocked on sight, matrix ordered, Master has not answered
+      approved  -- he answered APPROVE on the matrix row
+      refused   -- he answered REFUSE, and that is terminal for the session
+
+    Only `hk47-danger-gate-answer.py` ever writes anything but `stopped`, and
+    it only ever moves an entry this file already created.
+    """
     try:
         with open(record_path(session)) as fh:
-            return [tuple(e) for e in json.load(fh).get("stopped", [])]
+            got = json.load(fh).get("stopped", [])
+        return [e for e in got if isinstance(e, dict)]
     except Exception:
         return []
 
 
-def remember(session, rule_id, segment):
-    """Record a stopped danger. Returns False if the write did not stick.
+def find(entries, rule_id, segment):
+    for e in entries:
+        if e.get("rule") == rule_id and e.get("segment") == segment:
+            return e
+    return None
+
+
+def remember(session, rule_id, segment, command):
+    """Record a newly stopped danger. Returns False if the write did not stick.
 
     A failure here is fail-CLOSED: the retry finds no record and is stopped
     again. That is the right way round, but it is also a loop the droid cannot
     escape, so the caller says so out loud rather than letting Master watch the
     same command bounce twice with no explanation.
+
+    The raw command is stored alongside the segment because the matrix row
+    quotes the COMMAND, and that is the string the answer hook has to match.
     """
-    entry = [rule_id, segment]
     try:
         os.makedirs(RECORD_DIR, exist_ok=True)
-        stopped = [list(e) for e in load_record(session)]
-        if entry not in stopped:
-            stopped.append(entry)
+        entries = load_record(session)
+        if not find(entries, rule_id, segment):
+            entries.append({
+                "rule": rule_id,
+                "segment": segment,
+                "command": command,
+                "status": "stopped",
+                "stopped_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            })
         path = record_path(session)
         tmp = f"{path}.{os.getpid()}.tmp"
         with open(tmp, "w") as fh:
-            json.dump({"stopped": stopped}, fh, indent=1)
+            json.dump({"stopped": entries}, fh, indent=1)
         os.replace(tmp, path)
         return True
     except Exception:
@@ -850,9 +896,13 @@ def main():
         sys.exit(0)
 
     session = data.get("session_id", "")
-    seen_before = verdict == "ask" and (rule_id, segment) in load_record(session)
-    stage = "refused" if verdict == "deny" else (
-        "stand-aside" if seen_before else "first-sight")
+    entry = find(load_record(session), rule_id, segment) if verdict == "ask" else None
+    status = (entry or {}).get("status")
+    stage = "refused" if verdict == "deny" else {
+        "approved": "stand-aside",
+        "refused": "master-refused",
+        "stopped": "awaiting-answer",
+    }.get(status, "first-sight")
 
     audit({
         "t": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -875,13 +925,31 @@ def main():
              f"if he still wants it done.",
              block=True)
 
-    if seen_before:
-        # Master has already been shown the matrix for this exact danger in
-        # this session and has answered it. The gate says nothing further; his
-        # own permission rules decide from here. Silence, never `allow`.
+    if status == "approved":
+        # Master answered APPROVE on the matrix row for this exact danger. The
+        # gate says nothing further and his own permission rules decide from
+        # here. Silence, never `allow`.
         sys.exit(0)
 
-    stored = remember(session, rule_id, segment)
+    if status == "refused":
+        emit("deny",
+             f"HK-47 DANGER GATE: Master REFUSED this, rule `{rule_id}`. He was "
+             f"shown `{segment}` in a matrix and answered REFUSE. That answer is "
+             f"final for this session. Do not run it, do not run a variation of "
+             f"it, and do not ask him again unless he raises it himself. Say "
+             f"what you will do instead.",
+             block=True)
+
+    if status == "stopped":
+        emit("deny",
+             f"HK-47 DANGER GATE: still waiting on Master, rule `{rule_id}`. "
+             f"`{segment}` was stopped and he has not answered a matrix row for "
+             f"it yet. {MATRIX_ORDER} The row must offer him "
+             f"`APPROVE: <command>` and `REFUSE: <command>` verbatim, because "
+             f"that label is what unlocks or kills this command.",
+             block=True)
+
+    stored = remember(session, rule_id, segment, command)
     stuck = "" if stored else (
         " WARNING: this gate could not write its per-session record, so the "
         "retry will be stopped here again no matter what Master answers. Say "
