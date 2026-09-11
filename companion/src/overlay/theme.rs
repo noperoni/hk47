@@ -22,7 +22,7 @@ struct ThemeManifest {
     #[serde(default)]
     geometry: Geometry,
     /// Per-state animation definitions. Keys: "idle", "idle_alt", "attentive",
-    /// "thinking", "error", "scan_l", "scan_r"
+    /// "thinking", "scan_l", "scan_r"
     #[serde(default)]
     animations: HashMap<String, AnimationDef>,
     /// Optional static diorama backdrop drawn behind the sprite.
@@ -355,13 +355,12 @@ fn try_load_from_dir(theme_dir: &Path) -> Result<Theme, String> {
 
     // Ensure (state, S) exists for each required non-idle state.
     // The fallback chain then covers all other directions automatically.
-    // Error has no art in the hk47 pack yet, so it lands in the idle fallback below
-    // and reads as idle until an error strip exists. The warning line is the reminder.
+    // A theme missing one of these still runs: the state reads as idle and the
+    // warning line says which strip is absent.
     for &required in &[
         AnimState::Attentive,
         AnimState::Thinking,
         AnimState::IdleAlt,
-        AnimState::Error,
         AnimState::ScanL,
         AnimState::ScanR,
     ] {
@@ -466,7 +465,6 @@ fn parse_state_key(key: &str) -> Option<AnimState> {
         "idle_alt" => Some(AnimState::IdleAlt),
         "attentive" => Some(AnimState::Attentive),
         "thinking" => Some(AnimState::Thinking),
-        "error" => Some(AnimState::Error),
         "scan_l" => Some(AnimState::ScanL),
         "scan_r" => Some(AnimState::ScanR),
         _ => None,
@@ -478,7 +476,6 @@ fn default_tick_divisor_for(state: AnimState) -> u64 {
         AnimState::Idle | AnimState::IdleAlt => 3,
         AnimState::Attentive => 2,
         AnimState::Thinking => 1,
-        AnimState::Error => 2,
         AnimState::ScanL | AnimState::ScanR => 3,
     }
 }

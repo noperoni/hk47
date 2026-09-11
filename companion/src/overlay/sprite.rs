@@ -12,10 +12,6 @@ pub enum AnimState {
     IdleAlt,
     Attentive,
     Thinking,
-    /// Something HK-47 was asked to do failed. Entered from UiEvent::Error and
-    /// left again by the next toggle, Escape or prompt, so it is transient by
-    /// construction and never a state he can be stranded in.
-    Error,
     /// Head turned 45° to the viewer's left, sweeping the room with the scanner.
     /// Part of the idle rotation, not a state the UI ever asks for.
     ScanL,

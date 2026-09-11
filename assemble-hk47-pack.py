@@ -26,8 +26,8 @@ Two pinning rules, and they are different on purpose:
 The same footprint measurement drives the contact shadow in `sprite.rs`, so the
 ellipse tracks the stance rather than the silhouette.
 
-States. The theme names five: `idle`, `idle_alt`, `attentive`, `thinking`,
-`error`. `stance` is wired to `idle_alt` deliberately, because main.rs already
+States. The theme names four: `idle`, `idle_alt`, `attentive`, `thinking`.
+`stance` is wired to `idle_alt` deliberately, because main.rs already
 alternates Idle and IdleAlt on every entry to idle, which is the stance switch
 asked for and costs nothing. `question`, `permission` and `combat` are written
 to disk but not referenced: they need `AnimState` variants that do not exist
@@ -35,6 +35,11 @@ yet, and an unknown key in theme.toml warns on every launch. Note that the
 `[readouts]` block names two of those same words; that is a coincidence of
 subject matter, not a wiring. The readouts are wall consoles that count other
 sessions, and they drive no animation at all.
+
+`error` used to be a fifth state and is gone from the pack entirely as of
+2026-09-11: no strip, no theme key, no `AnimState` variant. An error clears
+too quickly to be caught on a sprite nobody is watching, and the raw frames
+are still at assets/anim-raw/error, so restoring it is one line in STATES.
 """
 
 import colorsys
@@ -95,7 +100,6 @@ STATES = {
     "idle_alt": ("stance", 3, ()),
     "attentive": ("attentive", 2, ()),
     "thinking": ("thinking", 2, ()),
-    "error": ("error", 2, ()),
 }
 
 # --- Scan poses: a head turn spliced from the rotations, for nothing ---------

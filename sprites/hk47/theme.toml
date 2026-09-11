@@ -62,11 +62,6 @@ file = "thinking.png"
 frames = 9
 tick_divisor = 2
 
-[animations.error]
-file = "error.png"
-frames = 9
-tick_divisor = 2
-
 # Assembled but unreferenced: these need AnimState variants that do not
 # exist yet, and an unknown key here warns on every launch.
 #   question.png (9 frames)

@@ -272,13 +272,19 @@ fn main() {
         // readdir of a tmpfs directory that is usually empty.
         //
         // The badge drives the badge and nothing else. It used to put him into
-        // AnimState::Error on the zero-to-non-zero edge, which parked him in a
+        // an error state on the zero-to-non-zero edge, which parked him in a
         // nine-frame strip looping every 0.75s until someone typed into the
         // session that had failed: a background session's failure could hold
-        // him there for hours. Removed at Master's direction on 2026-09-10.
-        // Until each non-idle state has an agreed behaviour of its own, nothing
-        // outside this process may interrupt the idle rotation, whatever gets
-        // pinged. The art and the AnimState variants are kept, unwired.
+        // him there for hours. Unwired on 2026-09-10, then deleted outright on
+        // 2026-09-11, art and enum variant and all, because an error passes too
+        // fast to be worth a glance at a sprite nobody is watching.
+        //
+        // The idle rotation is now the whole behaviour, by decision and not by
+        // omission: nothing outside this process interrupts it, whatever gets
+        // pinged. Attentive and Thinking keep their art and their variants and
+        // are driven by nothing, for the same reasons in miniature: one is for
+        // a sprite you are typing at, and the other is true so constantly that
+        // it says nothing. A fork that wants states can wire set_state.
         let badge_poll = badge.clone();
         let da_badge = drawing_area.clone();
         glib::timeout_add_local(Duration::from_secs(1), move || {
