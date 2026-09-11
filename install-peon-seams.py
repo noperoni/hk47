@@ -128,22 +128,45 @@ DANGER_CLASSIFIER = '''\
 elif event in ('PreToolUse', 'PostToolUse'):
     # Tool use events indicate Claude is actively working — clear needs_approval tab color
     status = 'working'
-    # HK47SEAM: PreToolUse carries two of the pack's categories.
+    # HK47SEAM: the tool events carry three of the pack's categories.
     #
     # Measured 2026-09-10, against a live log, and it overturned a guess: asking
     # Master a question does NOT raise an elicitation Notification, and his
     # answer does NOT arrive as a UserPromptSubmit. The whole exchange is one
-    # AskUserQuestion tool call. So the question is this PreToolUse, and the
-    # answer is whatever tool call I make next.
+    # AskUserQuestion tool call. So the question is this PreToolUse.
+    #
+    # Re-measured 2026-09-11, which overturned the other half of that reading:
+    # the answer is not "whatever tool call I make next" either. It is the
+    # PostToolUse of the AskUserQuestion itself, which is the exact instant
+    # Master confirms. The old reading needed a flag to survive from one hook
+    # invocation to the next, and it mostly did not: Claude Code raises
+    # PermissionRequest for the same question 11ms later, that invocation reads
+    # the state file before this arm has written it and writes last, so the flag
+    # was erased 13 times in 15 over two days of log.
     #
     # A destructive command earns a word before it runs, not after. PreToolUse
     # fires on every single tool call, so that arm stays silent unless a token
     # from the list actually appears in the command.
-    if event == 'PreToolUse':
-        _tn = event_data.get('tool_name', '')
+    _tn = event_data.get('tool_name', '')
+    _await = state.get('awaiting_master', {})
+    if event == 'PostToolUse':
+        # Scoped to AskUserQuestion here as well as by the matcher in
+        # settings.json, because every other tool call would be a voice line.
+        #
+        # MASTER'S RULING 2026-09-11: submitting answers in the question tool is
+        # him putting something in, exactly as typing a prompt is, so it takes
+        # the same line a prompt takes and not a category of its own. That is
+        # task.acknowledge, which is what the prompt classifier falls back to
+        # when nothing in the text claims it.
+        if _tn == 'AskUserQuestion':
+            category = 'task.acknowledge'
+            if session_id in _await:
+                del _await[session_id]
+                state['awaiting_master'] = _await
+                state_dirty = True
+    else:
         _ti = event_data.get('tool_input', {}) or {}
         _cmd = str(_ti.get('command', '') or '').lower() if isinstance(_ti, dict) else ''
-        _await = state.get('awaiting_master', {})
         if _tn == 'AskUserQuestion':
             category = 'input.question'
             _await[session_id] = time.time()
@@ -157,16 +180,61 @@ elif event in ('PreToolUse', 'PostToolUse'):
                 if _d in _cmd:
                     category = 'danger.command'
                     break
-            # Any other tool call means the question was answered and I am moving
-            # again. The flag clears either way, so a danger warning does not
-            # leave it armed for the next unrelated call.
+            # The flag no longer decides whether the answer is audible, so
+            # nothing load-bearing depends on it surviving that write race. It
+            # is cleared here, and still read by the UserPromptSubmit arm, for
+            # the case where Master abandons the dialog and types instead.
+            # ponytail: the lost update is upstream's whole-dict last-writer-wins
+            # state file, not this key; fix it there if another flag ever needs
+            # to live across invocations.
             if session_id in _await:
                 del _await[session_id]
                 state['awaiting_master'] = _await
-                state_dirty = True
-                if not category:
-                    category = 'task.complete.master'\
+                state_dirty = True\
 '''
+
+# --- A question is not an approval -------------------------------------------
+# Claude Code raises PermissionRequest as well as PreToolUse for one
+# AskUserQuestion call, 11ms apart, so the question was spoken twice: once as
+# input.question and once as input.required.
+PERMREQ_ANCHOR = (
+    "    category = 'input.required'\n"
+    "    status = 'needs approval'\n"
+    "    marker = '\\u25cf '\n"
+    "    notify = '1'\n"
+    "    notify_color = 'red'\n"
+    "    _tool = event_data.get('tool_name', '')\n"
+    "    msg = notification_message(status, _tool)"
+)
+
+PERMREQ_PATCH = (
+    "    _tool = event_data.get('tool_name', '')\n"
+    "    # HK47SEAM: MEASURED 2026-09-11 across two days of live log. 17 of 18\n"
+    "    # PermissionRequest events were AskUserQuestion and exactly one was a\n"
+    "    # real Bash approval, so this arm has been the wrong voice for a\n"
+    "    # question almost every time it has ever fired. The lock built for\n"
+    "    # ruling 2 did not remove the second line, it only stopped the two\n"
+    "    # overlapping and queued one behind the other.\n"
+    "    #\n"
+    "    # The PreToolUse arm owns the question, because it fires for every\n"
+    "    # AskUserQuestion whereas this event is not guaranteed to. This arm\n"
+    "    # keeps the desktop notification and drops the voice.\n"
+    "    if _tool == 'AskUserQuestion':\n"
+    "        category = ''\n"
+    "        status = 'question'\n"
+    "        marker = '\\u25cf '\n"
+    "        notify = '1'\n"
+    "        notify_color = 'blue'\n"
+    "        msg = notification_message(status, 'Question pending')\n"
+    "        msg_subtitle = 'Question pending'\n"
+    "    else:\n"
+    "        category = 'input.required'\n"
+    "        status = 'needs approval'\n"
+    "        marker = '\\u25cf '\n"
+    "        notify = '1'\n"
+    "        notify_color = 'red'\n"
+    "        msg = notification_message(status, _tool)"
+)
 
 # --- Playback: defer instead of interrupt ------------------------------------
 #
@@ -647,6 +715,7 @@ PATCHES = [
         "# this one is.\n"
         "print('CATEGORY=' + q(category or ''))",
     ),
+    ("a question is not an approval", PERMREQ_ANCHOR, PERMREQ_PATCH),
     ("defer helpers", KILL_ANCHOR, DEFER_HELPERS),
     ("retire the claim", SAVEPID_ANCHOR, SAVEPID_PATCH),
     ("defer instead of interrupt", PLAY_ANCHOR, DEFER_ENTRY),
