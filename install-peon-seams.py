@@ -63,7 +63,16 @@ PROMPT_CLASSIFIER = '''\
                 return _n
             return 1 + _lp.count(' and then ') + _lp.count(', then ')
 
-        if _p.startswith('/'):
+        if _lp.startswith('/start-session'):
+            # HK47SEAM: these two are skills, therefore prompts, and never fire
+            # the SessionStart/SessionEnd hooks at all, so before this arm the
+            # only line either could produce was a generic skill.invoke. Match
+            # the word to the sound; a real launch and a real exit keep their
+            # own routes, which is why both categories already have clips.
+            category = 'session.resume'
+        elif _lp.startswith('/end-session'):
+            category = 'session.end'
+        elif _p.startswith('/'):
             category = 'skill.invoke'
         elif _any(('what do you think', 'your opinion', 'your take',
                    'how do you feel', 'do you agree', 'thoughts?')):
@@ -212,16 +221,62 @@ hk47_voice_active() {
 #
 # The pending slot is exactly ONE deep, on purpose. A real FIFO queue would
 # turn a busy turn into a monologue running several seconds behind reality,
-# which is the same defect wearing a different coat. A newer event replaces
-# the one still waiting, so the droid is never more than one line out of date.
-HK47_DEFER_WAIT=120    # 12.0s: give up on a pid that will not die
+# which is the same defect wearing a different coat. So the slot holds one
+# line, and which one it holds is decided by rank, not by arrival order: see
+# hk47_rank for why newest-wins was wrong.
+HK47_DEFER_WAIT=120    # 12.0s: give up on a speaker that will not free up
 HK47_DEFER_STALE=80    # 8.0s: waited so long the line no longer describes now
 
+# --- HK47SEAM: one decision at a time --------------------------------------
+# Two hook events arriving within ~2ms both read an idle pid file and both
+# play, which Master heard once when a PermissionRequest and an
+# AskUserQuestion fired as a pair. The decide-and-claim below runs under this
+# lock so only one of them can find the speaker free.
+#
+# -w 0.3 because a hook is in Claude Code's critical path: a lock that can
+# hang an event is worse than the race it closes. On timeout we proceed
+# unlocked and log it, so the worst case is the old behaviour, not a stall.
+#
+# The lock covers the DECISION, not the playback. Holding it across the spawn
+# would leak fd 9 into the player, which then holds the lock for the whole
+# clip and taxes every hook 0.3s for four seconds. What makes the shorter
+# critical section safe is the provisional claim in play_sound: a pid that is
+# alive for exactly as long as the gap between deciding and spawning.
+HK47_LOCK_FD=9
+
+hk47_lock() {
+  command -v flock >/dev/null 2>&1 || return 1
+  exec 9>"$PEON_DIR/.hk47-play.lock" 2>/dev/null || return 1
+  flock -w 0.3 9 2>/dev/null
+}
+
+hk47_unlock() {
+  exec 9>&- 2>/dev/null || return 0
+}
+
+# Busy means either a clip is playing or a hook has claimed the speaker and is
+# a few milliseconds from spawning one. The claim lives in its OWN file rather
+# than in .sound.pid, because that file has upstream readers: kill_previous_sound
+# would shoot a hook process, and the trainer's wait loop would be handed a pid
+# that is not a player.
+#
+# THE CLAIM IS READ FIRST, AND THE ORDER IS LOAD-BEARING. save_sound_pid hands
+# over in the other direction: it writes .sound.pid and THEN retires the claim.
+# Reading in the same direction as that write lets a reader slip between the two
+# and see neither, which is exactly how two events still played together after
+# the lock went in. Read the claim first and the handoff cannot be caught
+# mid-air: while the claim is alive we are busy, and by the time it is gone the
+# real pid is already on disk.
 hk47_sound_busy() {
-  local pidfile="$PEON_DIR/.sound.pid" p
-  [ -f "$pidfile" ] || return 1
-  p=$(cat "$pidfile" 2>/dev/null)
-  [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+  local f p
+  for f in "$PEON_DIR/.hk47-claim.pid" "$PEON_DIR/.sound.pid"; do
+    [ -f "$f" ] || continue
+    p=$(cat "$f" 2>/dev/null)
+    if [ -n "$p" ] && kill -0 "$p" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 # danger.command is the one category still allowed to interrupt. It fires at
@@ -234,6 +289,42 @@ hk47_may_interrupt() {
   esac
 }
 
+# --- HK47SEAM: rank the pending slot by who caused the line ----------------
+# Depth-one newest-wins was wrong, and Master caught it within the hour. It
+# discards HIS lines systematically, because a tool call of mine always lands
+# within a second of his prompt:
+#
+#   1. my turn ends, Stop plays a 4s completion line
+#   2. he submits a prompt, which is deferred behind it
+#   3. a tool call of mine fires and REPLACES his pending line
+#   4. he hears the tool call and never his own acknowledgement
+#
+# So: 2 preempts outright, 1 is Master's own doing, 0 is my background
+# chatter, and a 0 may never displace a 1. Equal ranks keep newest-wins,
+# which is right within a tier: two of my own lines, the later one describes
+# now. session.start/resume/end are rank 1 by extension rather than by
+# Master's list, on the same principle: he launched the session, and after
+# the classifier arm below, /start-session and /end-session are prompts.
+hk47_rank() {
+  case "$1" in
+    danger.command) echo 2 ;;
+    user.*|input.*|task.acknowledge|skill.invoke|session.start|session.resume|session.end)
+      echo 1 ;;
+    *) echo 0 ;;
+  esac
+}
+
+# The pending slot's category, empty if nothing is waiting. The pid is checked
+# because a deferrer that has already gone to the speaker removes its own file
+# and a killed one may not have: a dead pid is not a pending line.
+hk47_pending_category() {
+  local dpidfile="$PEON_DIR/.hk47-defer.pid" dp dc
+  [ -f "$dpidfile" ] || return 0
+  read -r dp dc < "$dpidfile" 2>/dev/null || return 0
+  [ -n "$dp" ] && kill -0 "$dp" 2>/dev/null && printf '%s' "$dc"
+  return 0
+}
+
 # Cancel whatever is waiting its turn. Killing a deferrer only ends a sleep,
 # so nothing audible is interrupted: that is the whole difference between this
 # and kill_previous_sound. Called from both, because ANY decision to take the
@@ -241,24 +332,40 @@ hk47_may_interrupt() {
 # that plays by the direct path leaves an orphaned deferrer sleeping on a pid
 # that is already dead, and it wakes to play straight over the top.
 hk47_cancel_pending() {
-  local dpidfile="$PEON_DIR/.hk47-defer.pid" dp
+  local dpidfile="$PEON_DIR/.hk47-defer.pid" dp _dc
   [ -f "$dpidfile" ] || return 0
-  dp=$(cat "$dpidfile" 2>/dev/null)
-  [ -n "$dp" ] && kill "$dp" 2>/dev/null
+  # Two fields since the rank patch: kill the pid, never the category with it.
+  read -r dp _dc < "$dpidfile" 2>/dev/null || true
+  [ -n "${dp:-}" ] && kill "$dp" 2>/dev/null
   rm -f "$dpidfile"
+  return 0
 }
 
+# Returns 1 without queueing anything when the pending line outranks this one,
+# which is a decision to stay silent rather than a failure.
 hk47_defer() {
-  local file="$1" vol="$2" player="$3" oldpid="$4"
+  local file="$1" vol="$2" player="$3"
   local dpidfile="$PEON_DIR/.hk47-defer.pid"
+  local newcat="${CATEGORY:-}" pendcat
+  HK47_OUTRANKED_BY=""
+  pendcat=$(hk47_pending_category)
+  if [ -n "$pendcat" ] && [ "$(hk47_rank "$newcat")" -lt "$(hk47_rank "$pendcat")" ]; then
+    HK47_OUTRANKED_BY="$pendcat"
+    return 1
+  fi
   hk47_cancel_pending
   (
+    # Never hold the decision lock through a twelve-second sleep. The parent
+    # spawned us while holding it, so fd 9 came with us.
+    exec 9>&- 2>/dev/null || true
     # The hook process that spawned us is about to exit. Upstream wraps its
     # player in nohup for the same reason: outlive the hangup, or the deferred
     # line is lost silently and the defect looks intermittent rather than fixed.
     trap "" HUP
     n=0
-    while kill -0 "$oldpid" 2>/dev/null && [ "$n" -lt "$HK47_DEFER_WAIT" ]; do
+    # Waits on the speaker rather than on one pid, so a clip that takes over
+    # mid-wait is also waited out instead of being played straight over.
+    while hk47_sound_busy && [ "$n" -lt "$HK47_DEFER_WAIT" ]; do
       sleep 0.1
       n=$((n + 1))
     done
@@ -266,13 +373,17 @@ hk47_defer() {
     # Checked again here, not only at decision time: he may have started
     # dictating during the very seconds we spent waiting our turn.
     if [ "$n" -lt "$HK47_DEFER_STALE" ] && ! hk47_voice_active; then
+      # Claim the speaker before spawning, for the same reason play_sound
+      # does. BASHPID, not $$, which inside a subshell is still the hook's.
+      echo $BASHPID > "$PEON_DIR/.hk47-claim.pid"
       play_linux_sound "$file" "$vol" "$player"
       # Register it, or the next event reads an idle pid file and interrupts
       # the very clip this function waited to play.
       save_sound_pid $!
     fi
   ) >/dev/null 2>&1 &
-  echo $! > "$dpidfile"
+  echo "$! $newcat" > "$dpidfile"
+  return 0
 }
 
 # --- Kill any previously playing peon-ping sound ---'''
@@ -303,18 +414,55 @@ DEFER_ENTRY = '''play_sound() {
   # HK47SEAM: defer rather than interrupt. Linux only, because that is the only
   # platform whose player this fork drives, and never under PEON_TEST, whose
   # whole contract is that playback is synchronous.
-  if [ "$PEON_PLATFORM" = "linux" ] && [ "${PEON_TEST:-0}" != "1" ] &&
-     hk47_sound_busy && ! hk47_may_interrupt; then
-    local _hk_player _hk_old
-    _hk_player=$(detect_linux_player "${LINUX_AUDIO_PLAYER:-}") || _hk_player=""
-    _hk_old=$(cat "$PEON_DIR/.sound.pid" 2>/dev/null)
-    if [ -n "$_hk_player" ]; then
-      hk47_defer "$file" "$vol" "$_hk_player" "$_hk_old"
-      _peon_log play "deferred=true category=${CATEGORY:-}"
-      return 0
+  #
+  # Everything from the busy check to the claim runs under hk47_lock, because
+  # two events 2ms apart used to read the same idle pid file and both play.
+  if [ "$PEON_PLATFORM" = "linux" ] && [ "${PEON_TEST:-0}" != "1" ]; then
+    hk47_lock || _peon_log play "lock=timeout category=${CATEGORY:-}"
+    local _hk_busy=no
+    hk47_sound_busy && _hk_busy=yes
+    if [ "$_hk_busy" = yes ] && ! hk47_may_interrupt; then
+      local _hk_player
+      _hk_player=$(detect_linux_player "${LINUX_AUDIO_PLAYER:-}") || _hk_player=""
+      if [ -n "$_hk_player" ]; then
+        if hk47_defer "$file" "$vol" "$_hk_player"; then
+          _peon_log play "deferred=true category=${CATEGORY:-}"
+        else
+          _peon_log play "dropped=outranked category=${CATEGORY:-} pending=${HK47_OUTRANKED_BY:-}"
+        fi
+        hk47_unlock
+        return 0
+      fi
+    elif [ "$_hk_busy" = no ]; then
+      # Provisional claim: a live pid covering the gap between deciding and
+      # spawning, so a concurrent hook reads the speaker as taken and defers
+      # instead of playing over the top. Retired by save_sound_pid below.
+      #
+      # BASHPID, never $$. MEASURED, and it cost an afternoon: upstream runs
+      # this whole path as `_run_sound_and_notify & disown`, so $$ names the
+      # hook shell that has ALREADY EXITED by the time a second event checks,
+      # which made every claim dead on arrival and left the race wide open.
+      # $BASHPID names the subshell actually doing the work.
+      echo $BASHPID > "$PEON_DIR/.hk47-claim.pid"
     fi
+    hk47_unlock
   fi
   kill_previous_sound
+'''
+
+SAVEPID_ANCHOR = '''save_sound_pid() {
+  [ -n "${1:-}" ] || return 0
+  echo "$1" > "$PEON_DIR/.sound.pid"
+'''
+
+SAVEPID_PATCH = '''save_sound_pid() {
+  [ -n "${1:-}" ] || return 0
+  echo "$1" > "$PEON_DIR/.sound.pid"
+  # HK47SEAM: a real player pid supersedes the provisional claim, and the claim
+  # must not outlive the clip. Without this, the claiming subshell goes on to do
+  # notifications and tab titles, so a finished clip could still read as busy
+  # and the next line would wait behind nothing.
+  rm -f "$PEON_DIR/.hk47-claim.pid"
 '''
 
 SKIP_ANCHOR = '''  # --- Play sound and/or TTS based on mode ---
@@ -500,6 +648,7 @@ PATCHES = [
         "print('CATEGORY=' + q(category or ''))",
     ),
     ("defer helpers", KILL_ANCHOR, DEFER_HELPERS),
+    ("retire the claim", SAVEPID_ANCHOR, SAVEPID_PATCH),
     ("defer instead of interrupt", PLAY_ANCHOR, DEFER_ENTRY),
     ("silence while dictating", SKIP_ANCHOR, SKIP_VOICE),
     ("cancel pending on takeover", CANCEL_ANCHOR, CANCEL_PATCH),
