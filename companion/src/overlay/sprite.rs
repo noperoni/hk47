@@ -10,8 +10,6 @@ use super::theme::Theme;
 pub enum AnimState {
     Idle,
     IdleAlt,
-    Attentive,
-    Thinking,
     /// Head turned 45° to the viewer's left, sweeping the room with the scanner.
     /// Part of the idle rotation, not a state the UI ever asks for.
     ScanL,
@@ -256,16 +254,6 @@ impl SpriteSheet {
     }
 }
 
-/// Pacing motion (Thinking state): HK-47 walks back and forth across the study
-/// floor instead of pondering in place. Tuned in native backdrop pixels so the
-/// draw loop can scale them by the diorama factor.
-/// Half-width of the pacing path each side of centre — bounded to the clear rug
-/// between the reading lamp (left) and the fireplace (right).
-const PACE_HALF_RANGE: f64 = 30.0;
-/// Horizontal travel per timer tick (native px). Tuned against the walk cadence
-/// so his feet don't slide; eye-checked on the diorama.
-const PACE_PER_TICK: f64 = 1.0;
-
 /// The idle rotation: what he does when nobody is asking him for anything.
 ///
 /// Each beat is a pose and a facing. He settles into it over the strip's own
@@ -337,11 +325,6 @@ pub struct Animator {
     /// xorshift64 state, seeded at launch. A whole RNG crate for four numbers a
     /// minute would be an indulgence.
     rng: u64,
-    /// Pacing horizontal offset from centre, in native backdrop px (Thinking only).
-    pace_x: f64,
-    /// Pacing travel direction: +1 = moving east (right), -1 = moving west (left).
-    /// The walk art faces west, so +1 is drawn mirrored.
-    pace_sign: f64,
     theme: Rc<Theme>,
 }
 
@@ -365,8 +348,6 @@ impl Animator {
             idle_dwell_total: 0,
             beam_was_live: false,
             rng: (nanos as u64) | 1, // xorshift dies on a zero seed
-            pace_x: 0.0,
-            pace_sign: -1.0,
             theme,
         };
         anim.enter_idle_beat(anim.rng as usize % IDLE_BEATS.len());
@@ -454,9 +435,10 @@ impl Animator {
     /// beat rather than restarting it, so returning from a task does not snap
     /// him into the same pose every single time.
     ///
-    /// Uncalled since the badge stopped driving the body on 2026-09-10: the
-    /// idle rotation is the only agreed behaviour, so nothing may interrupt it.
-    /// Kept, with its art, for the states that will earn a driver later.
+    /// Uncalled, and deliberately so as of 2026-09-11: the idle rotation is the
+    /// whole behaviour and nothing may interrupt it. Every state that had an
+    /// outside driver has since lost it, and then lost its art too. This is kept
+    /// as the seam a fork reaches for when it adds a state of its own.
     #[allow(dead_code)]
     pub fn set_state(&mut self, state: AnimState) {
         if state == AnimState::Idle {
@@ -470,23 +452,13 @@ impl Animator {
             self.tick_counter = 0;
             self.hold_remaining = 0;
             self.hold_loop_from = None;
-            // Begin each pacing bout from centre, walking west (art's native facing).
-            if state == AnimState::Thinking {
-                self.pace_x = 0.0;
-                self.pace_sign = -1.0;
-            }
         }
     }
 
-    /// Advance one timer tick. Steps the frame animation and, while pacing
-    /// (Thinking), also moves HK-47 across the floor. Returns true if anything
-    /// changed and the sprite needs redrawing.
+    /// Advance one timer tick. Steps the frame animation and the idle beat.
+    /// Returns true if anything changed and the sprite needs redrawing.
     pub fn tick(&mut self) -> bool {
         let mut changed = self.advance_frame();
-        if self.state == AnimState::Thinking {
-            self.advance_pace();
-            changed = true; // position shifts every tick → always redraw
-        }
         if self.is_idle() {
             self.idle_dwell = self.idle_dwell.saturating_sub(1);
             if self.idle_dwell == 0 {
@@ -548,29 +520,6 @@ impl Animator {
             self.hold_loop_end = self.frame;
         }
         true
-    }
-
-    /// Move the pacing offset one tick and about-face at the rug edges.
-    fn advance_pace(&mut self) {
-        self.pace_x += PACE_PER_TICK * self.pace_sign;
-        if self.pace_x >= PACE_HALF_RANGE {
-            self.pace_x = PACE_HALF_RANGE;
-            self.pace_sign = -1.0; // hit right edge → turn west
-        } else if self.pace_x <= -PACE_HALF_RANGE {
-            self.pace_x = -PACE_HALF_RANGE;
-            self.pace_sign = 1.0; // hit left edge → turn east
-        }
-    }
-
-    /// Pacing offset for the draw loop, or None when not pacing.
-    /// Returns (horizontal offset from centre in native backdrop px, flip_h).
-    /// flip_h is true when walking east — the walk art faces west by default.
-    pub fn pace(&self) -> Option<(f64, bool)> {
-        if self.state == AnimState::Thinking {
-            Some((self.pace_x, self.pace_sign > 0.0))
-        } else {
-            None
-        }
     }
 
     pub fn current_frame(&self) -> usize {

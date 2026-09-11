@@ -189,29 +189,20 @@ fn main() {
                 // than over it: his body occludes them, not the reverse. At zero
                 // nothing is drawn at all and the backdrop stands as painted.
                 overlay::badge::draw(cr, badge_draw.get(), &theme_draw, diorama_scale);
-                // Base position: horizontally centred on the floor.
-                let mut ox_screen = (bw * diorama_scale - hk47_display_size) / 2.0;
-                // While pacing (Thinking), shift along the floor and mirror the
-                // west-facing walk art when he's heading east.
-                let flip_h = match anim.pace() {
-                    Some((pace_native, flip)) => {
-                        ox_screen += pace_native * diorama_scale;
-                        flip
-                    }
-                    None => false,
-                };
+                // Base position: horizontally centred on the floor. He does not
+                // travel: the pacing walk went out with the Thinking state on
+                // 2026-09-11, and with it the horizontal mirror it needed.
+                let ox_screen = (bw * diorama_scale - hk47_display_size) / 2.0;
                 // Contact shadow first, so his soles overlap its near edge. Its
                 // centre follows the footprint, which is off-frame-centre for the
-                // wider poses and mirrors with him when he walks east.
+                // wider poses.
                 let sheet = anim.current_sheet();
                 let metrics = sheet.metrics(anim.current_frame());
-                // Mirror a frame-local x when the walk art is flipped.
-                let mirror = |x: f64| if flip_h { frame_w - x } else { x };
                 overlay::sprite::draw_shadow(
                     cr,
                     sheet,
                     anim.current_frame(),
-                    ox_screen + mirror(metrics.footprint.0) * frame_scale,
+                    ox_screen + metrics.footprint.0 * frame_scale,
                     floor_y_screen,
                     frame_scale,
                 );
@@ -219,7 +210,7 @@ fn main() {
                 // end of it. Clipped to the interior: the frame line is an object
                 // in front of the scene, not part of the room being scanned.
                 let beam = anim.beam();
-                let eye_x = ox_screen + mirror(metrics.eye.0) * frame_scale;
+                let eye_x = ox_screen + metrics.eye.0 * frame_scale;
                 let eye_y = oy_screen + metrics.eye.1 * frame_scale;
                 let ring = geom.border as f64 * diorama_scale;
                 let interior = (
@@ -233,11 +224,6 @@ fn main() {
                 }
                 cr.save().unwrap();
                 cr.translate(ox_screen, oy_screen);
-                if flip_h {
-                    // Mirror horizontally about the sprite box's own centre.
-                    cr.translate(hk47_display_size, 0.0);
-                    cr.scale(-1.0, 1.0);
-                }
                 overlay::sprite::draw_frame(cr, anim.current_sheet(), anim.current_frame(), hk47_display_size);
                 cr.restore().unwrap();
                 // Emitter bloom last: it is his own head lighting up, so unlike
@@ -279,12 +265,12 @@ fn main() {
         // 2026-09-11, art and enum variant and all, because an error passes too
         // fast to be worth a glance at a sprite nobody is watching.
         //
-        // The idle rotation is now the whole behaviour, by decision and not by
-        // omission: nothing outside this process interrupts it, whatever gets
-        // pinged. Attentive and Thinking keep their art and their variants and
-        // are driven by nothing, for the same reasons in miniature: one is for
-        // a sprite you are typing at, and the other is true so constantly that
-        // it says nothing. A fork that wants states can wire set_state.
+        // Attentive and thinking followed it out the same day, for the same
+        // reason in miniature: attentive wants a sprite you are typing at, and
+        // thinking is true so constantly it says nothing. AnimState is now the
+        // four beats of the idle rotation and nothing else, so the rotation is
+        // the whole behaviour by decision rather than by omission. A fork that
+        // wants a state adds the variant, the strip and the call to set_state.
         let badge_poll = badge.clone();
         let da_badge = drawing_area.clone();
         glib::timeout_add_local(Duration::from_secs(1), move || {

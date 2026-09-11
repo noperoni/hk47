@@ -8,10 +8,6 @@ use super::sprite::{AnimState, Direction, SpriteSheet};
 // Embedded default sprite sheets (compiled into binary).
 const DEFAULT_IDLE_PNG: &[u8] = include_bytes!("../assets/sprites/idle.png");
 const DEFAULT_IDLE_FRAMES: usize = 8;
-const DEFAULT_ATTENTIVE_PNG: &[u8] = include_bytes!("../assets/sprites/attentive.png");
-const DEFAULT_ATTENTIVE_FRAMES: usize = 6;
-const DEFAULT_THINKING_PNG: &[u8] = include_bytes!("../assets/sprites/thinking.png");
-const DEFAULT_THINKING_FRAMES: usize = 6;
 
 /// On-disk theme manifest, deserialized from theme.toml.
 #[derive(Debug, Deserialize)]
@@ -21,8 +17,8 @@ struct ThemeManifest {
     /// Where the figure's feet sit, where the floor is, and how big the ring is.
     #[serde(default)]
     geometry: Geometry,
-    /// Per-state animation definitions. Keys: "idle", "idle_alt", "attentive",
-    /// "thinking", "scan_l", "scan_r"
+    /// Per-state animation definitions. Keys: "idle", "idle_alt", "scan_l",
+    /// "scan_r", which are the four beats of the idle rotation and all there is.
     #[serde(default)]
     animations: HashMap<String, AnimationDef>,
     /// Optional static diorama backdrop drawn behind the sprite.
@@ -357,13 +353,7 @@ fn try_load_from_dir(theme_dir: &Path) -> Result<Theme, String> {
     // The fallback chain then covers all other directions automatically.
     // A theme missing one of these still runs: the state reads as idle and the
     // warning line says which strip is absent.
-    for &required in &[
-        AnimState::Attentive,
-        AnimState::Thinking,
-        AnimState::IdleAlt,
-        AnimState::ScanL,
-        AnimState::ScanR,
-    ] {
+    for &required in &[AnimState::IdleAlt, AnimState::ScanL, AnimState::ScanR] {
         if !states.contains_key(&(required, Direction::S)) {
             eprintln!(
                 "warn: theme missing {:?}/S state, falling back to idle",
@@ -417,26 +407,6 @@ fn load_embedded_default() -> Theme {
     // here means the shipped binary is broken, which is a build-time bug, not runtime input.
     let mut states = HashMap::new();
     states.insert((AnimState::Idle, Direction::S), embedded_idle_animation());
-    states.insert(
-        (AnimState::Attentive, Direction::S),
-        StateAnimation {
-            sheet: SpriteSheet::from_png_bytes(DEFAULT_ATTENTIVE_PNG, Some(DEFAULT_ATTENTIVE_FRAMES))
-                .expect("embedded attentive asset must be valid"),
-            tick_divisor: 2,
-            loop_start: 0,
-            holds: HashMap::new(),
-        },
-    );
-    states.insert(
-        (AnimState::Thinking, Direction::S),
-        StateAnimation {
-            sheet: SpriteSheet::from_png_bytes(DEFAULT_THINKING_PNG, Some(DEFAULT_THINKING_FRAMES))
-                .expect("embedded thinking asset must be valid"),
-            tick_divisor: 1,
-            loop_start: 0,
-            holds: HashMap::new(),
-        },
-    );
     Theme {
         name: "default".to_string(),
         author: "HK-47".to_string(),
@@ -463,8 +433,6 @@ fn parse_state_key(key: &str) -> Option<AnimState> {
     match key {
         "idle" => Some(AnimState::Idle),
         "idle_alt" => Some(AnimState::IdleAlt),
-        "attentive" => Some(AnimState::Attentive),
-        "thinking" => Some(AnimState::Thinking),
         "scan_l" => Some(AnimState::ScanL),
         "scan_r" => Some(AnimState::ScanR),
         _ => None,
@@ -474,8 +442,6 @@ fn parse_state_key(key: &str) -> Option<AnimState> {
 fn default_tick_divisor_for(state: AnimState) -> u64 {
     match state {
         AnimState::Idle | AnimState::IdleAlt => 3,
-        AnimState::Attentive => 2,
-        AnimState::Thinking => 1,
         AnimState::ScanL | AnimState::ScanR => 3,
     }
 }
