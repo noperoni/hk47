@@ -300,7 +300,10 @@ def main():
     # from writing into the live per-session record.
     contract = []
     with tempfile.TemporaryDirectory(prefix="hk47-gate-contract-") as tmp:
-        env = dict(os.environ, XDG_RUNTIME_DIR=tmp)
+        # BOTH seams, every time. This block redirected only XDG_RUNTIME_DIR on
+        # 2026-09-11 and three contract cases landed in the live audit trail.
+        env = dict(os.environ, XDG_RUNTIME_DIR=tmp,
+                   HK47_GATE_LOG=os.path.join(tmp, "audit.jsonl"))
         sample = [
             ("rm -rf /", "deny", 2),
             ("rm /home/user/notes.md", "deny", 2),      # ask tier, first sight
