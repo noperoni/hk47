@@ -159,6 +159,180 @@ elif event in ('PreToolUse', 'PostToolUse'):
                     category = 'task.complete.master'\
 '''
 
+# --- Playback: defer instead of interrupt ------------------------------------
+#
+# These two patches are the only ones that land in SHELL rather than in the
+# routing Python, so the unquoted-heredoc rule does not apply to them and a
+# dollar sign here is just a dollar sign.
+#
+# Upstream's play_sound() opens by killing whatever is still playing, so the
+# newest line always wins and the previous one is cut off mid-sentence. With
+# barks that is invisible; with HK-47, whose median clip is four seconds of
+# conversational dialogue, it is the defect Master reported.
+
+KILL_ANCHOR = "# --- Kill any previously playing peon-ping sound ---"
+
+DEFER_HELPERS = '''# --- HK47SEAM: hold the tongue while a microphone is live ------------------
+# Master dictates with /voice, Claude Code's push-to-talk. Four seconds of
+# HK-47 fired into an open microphone is four seconds typed into his prompt.
+#
+# MEASURED on 2026-09-10, not assumed. /voice opens exactly one PipeWire
+# capture stream, holds it for the whole time dictation is active, and drops it
+# when he stops:
+#
+#   Source Output #107249
+#     application.name = "PipeWire ALSA [claude]"
+#     node.name        = alsa_capture.claude
+#     media.name       = "ALSA Capture"
+#
+# Keyed on node.name, which is the narrowest of the three. Any Claude session
+# dictating anywhere silences this one, which is correct: it means a live
+# microphone in the same room. For the broader "shut up during meetings" case
+# peon-ping already ships meeting_detect, which is a config flag, not this.
+#
+# 6ms per call, measured over 20 runs, so it is not worth a cheaper pre-gate.
+#
+# Overridable by environment so the detector can be exercised against a stream
+# that is not Claude Code. arecord registers as alsa_capture.aplay, arecord
+# being a symlink to aplay, which is what the suppression test drives it with:
+# arecord refuses to run under any other name, so a real alsa_capture.claude
+# cannot be faked. The literal string is not a guess either way -- it came off
+# Master's own probe run.
+HK47_VOICE_NODE="${HK47_VOICE_NODE:-alsa_capture.claude}"
+
+hk47_voice_active() {
+  command -v pactl >/dev/null 2>&1 || return 1
+  pactl list source-outputs 2>/dev/null | grep -q "$HK47_VOICE_NODE"
+}
+
+# --- HK47SEAM: let the clip in flight finish -------------------------------
+# Master's complaint: a line cut off mid-sentence is worse than a line that
+# arrives a moment late. These helpers hold a new clip until the current one
+# ends, rather than shooting the current one in the head.
+#
+# The pending slot is exactly ONE deep, on purpose. A real FIFO queue would
+# turn a busy turn into a monologue running several seconds behind reality,
+# which is the same defect wearing a different coat. A newer event replaces
+# the one still waiting, so the droid is never more than one line out of date.
+HK47_DEFER_WAIT=120    # 12.0s: give up on a pid that will not die
+HK47_DEFER_STALE=80    # 8.0s: waited so long the line no longer describes now
+
+hk47_sound_busy() {
+  local pidfile="$PEON_DIR/.sound.pid" p
+  [ -f "$pidfile" ] || return 1
+  p=$(cat "$pidfile" 2>/dev/null)
+  [ -n "$p" ] && kill -0 "$p" 2>/dev/null
+}
+
+# danger.command is the one category still allowed to interrupt. It fires at
+# PreToolUse, BEFORE the dangerous thing runs, so a warning made to wait four
+# seconds behind an acknowledgement is a warning delivered after the fact.
+hk47_may_interrupt() {
+  case "${CATEGORY:-}" in
+    danger.command) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Cancel whatever is waiting its turn. Killing a deferrer only ends a sleep,
+# so nothing audible is interrupted: that is the whole difference between this
+# and kill_previous_sound. Called from both, because ANY decision to take the
+# speaker must also drop the line that was queued for it. Without this, a clip
+# that plays by the direct path leaves an orphaned deferrer sleeping on a pid
+# that is already dead, and it wakes to play straight over the top.
+hk47_cancel_pending() {
+  local dpidfile="$PEON_DIR/.hk47-defer.pid" dp
+  [ -f "$dpidfile" ] || return 0
+  dp=$(cat "$dpidfile" 2>/dev/null)
+  [ -n "$dp" ] && kill "$dp" 2>/dev/null
+  rm -f "$dpidfile"
+}
+
+hk47_defer() {
+  local file="$1" vol="$2" player="$3" oldpid="$4"
+  local dpidfile="$PEON_DIR/.hk47-defer.pid"
+  hk47_cancel_pending
+  (
+    # The hook process that spawned us is about to exit. Upstream wraps its
+    # player in nohup for the same reason: outlive the hangup, or the deferred
+    # line is lost silently and the defect looks intermittent rather than fixed.
+    trap "" HUP
+    n=0
+    while kill -0 "$oldpid" 2>/dev/null && [ "$n" -lt "$HK47_DEFER_WAIT" ]; do
+      sleep 0.1
+      n=$((n + 1))
+    done
+    rm -f "$dpidfile"
+    # Checked again here, not only at decision time: he may have started
+    # dictating during the very seconds we spent waiting our turn.
+    if [ "$n" -lt "$HK47_DEFER_STALE" ] && ! hk47_voice_active; then
+      play_linux_sound "$file" "$vol" "$player"
+      # Register it, or the next event reads an idle pid file and interrupts
+      # the very clip this function waited to play.
+      save_sound_pid $!
+    fi
+  ) >/dev/null 2>&1 &
+  echo $! > "$dpidfile"
+}
+
+# --- Kill any previously playing peon-ping sound ---'''
+
+CANCEL_ANCHOR = '''kill_previous_sound() {
+  local pidfile="$PEON_DIR/.sound.pid"
+'''
+
+CANCEL_PATCH = '''kill_previous_sound() {
+  # HK47SEAM: taking the speaker also drops whatever was queued for it. See
+  # hk47_cancel_pending above for why an orphaned deferrer is audible.
+  hk47_cancel_pending
+  local pidfile="$PEON_DIR/.sound.pid"
+'''
+
+PLAY_ANCHOR = '''play_sound() {
+  local file="$1" vol="$2"
+  _peon_log play "backend=$PEON_PLATFORM file=$(basename "$file") volume=$vol async=true"
+  kill_previous_sound
+'''
+
+# No backslash line-continuations in here: this is a plain triple-quoted Python
+# string, so a trailing backslash would be eaten as a Python continuation and
+# the shell would never see it. Bash continues happily after a trailing &&.
+DEFER_ENTRY = '''play_sound() {
+  local file="$1" vol="$2"
+  _peon_log play "backend=$PEON_PLATFORM file=$(basename "$file") volume=$vol async=true"
+  # HK47SEAM: defer rather than interrupt. Linux only, because that is the only
+  # platform whose player this fork drives, and never under PEON_TEST, whose
+  # whole contract is that playback is synchronous.
+  if [ "$PEON_PLATFORM" = "linux" ] && [ "${PEON_TEST:-0}" != "1" ] &&
+     hk47_sound_busy && ! hk47_may_interrupt; then
+    local _hk_player _hk_old
+    _hk_player=$(detect_linux_player "${LINUX_AUDIO_PLAYER:-}") || _hk_player=""
+    _hk_old=$(cat "$PEON_DIR/.sound.pid" 2>/dev/null)
+    if [ -n "$_hk_player" ]; then
+      hk47_defer "$file" "$vol" "$_hk_player" "$_hk_old"
+      _peon_log play "deferred=true category=${CATEGORY:-}"
+      return 0
+    fi
+  fi
+  kill_previous_sound
+'''
+
+SKIP_ANCHOR = '''  # --- Play sound and/or TTS based on mode ---
+  if [ "$_skip_sound" = "false" ]; then
+'''
+
+# Gated here rather than inside play_sound because this one branch governs the
+# clip AND the TTS line below it, and dictation must silence both.
+SKIP_VOICE = '''  # HK47SEAM: say nothing into an open microphone. See hk47_voice_active.
+  if [ "$_skip_sound" = "false" ] && hk47_voice_active; then
+    _skip_sound=true
+    _peon_log play "suppressed=voice reason=dictation_active"
+  fi
+
+  # --- Play sound and/or TTS based on mode ---
+  if [ "$_skip_sound" = "false" ]; then
+'''
+
 # (name, anchor, replacement). Order is irrelevant: anchors are disjoint.
 PATCHES = [
     (
@@ -315,6 +489,20 @@ PATCHES = [
         "    status = 'working'",
         DANGER_CLASSIFIER,
     ),
+    (
+        "category export",
+        "print('SOUND_FILE=' + q(sound_file))",
+        "print('SOUND_FILE=' + q(sound_file))\n"
+        "# HK47SEAM: the shell below needs to know WHICH line it is about to play,\n"
+        "# because one category is allowed to interrupt another. Parsing it back out\n"
+        "# of the filename would work only for packs that happen to be named the way\n"
+        "# this one is.\n"
+        "print('CATEGORY=' + q(category or ''))",
+    ),
+    ("defer helpers", KILL_ANCHOR, DEFER_HELPERS),
+    ("defer instead of interrupt", PLAY_ANCHOR, DEFER_ENTRY),
+    ("silence while dictating", SKIP_ANCHOR, SKIP_VOICE),
+    ("cancel pending on takeover", CANCEL_ANCHOR, CANCEL_PATCH),
 ]
 
 

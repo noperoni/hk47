@@ -35,17 +35,16 @@ task.acknowledge	nm35aahhkd07185_	splice	0.00-0.66+1.13-2.16	1.9	Statement: Of c
 task.acknowledge	nm17ac08hk01004_	splice	0.00-0.51+5.56-7.63	2.6	Answer: At your command, of course, master.
 task.acknowledge	nm17ac08hk01004_	splice	0.00-0.51+1.12-1.71	1.2	Answer: Indeed.
 task.acknowledge	nm35aahhkd07212_	cut	0.00-4.11	4.11	Appeasement: Yes, master. Of course, master.
-task.complete.self	nm35aahhkd07390_	splice	0.00-0.75+1.24-1.77	1.4	Statement: See?
 task.complete.self	nm35aahhkd07244_	splice	0.00-0.57+5.55-7.14	2.47	Statement: I move very quickly.
 task.complete.self	nm35aahhkd07031_	splice	0.00-0.91+2.58-5.58	4.37	Observation: I imagine it was truly a work of art to see me in action.
-task.complete.self	nm35aahhkd07023_	splice	0.00-0.83+4.74-5.35|5.40-6.84	3.41	Commentary: That would be my genius engineering.
+task.complete.self	nm35aahhkd07406_	graft	nm35aahhkd07375_:0.00-0.49+4.61-7.23	3.64	Query: Have I not brought you a great deal of satisfaction?
+task.complete.self	nm35aahhkd07289_	graft	nm35aahhkd07433_:0.00-0.60+6.91-8.31	2.45	Statement: I felt most useful.
 task.complete.master	nglobehhkd07556_	whole	-	4.58	Statement: Well done, master. You're my kind of owner!
 task.complete.master	nm35aahhkd07183_	whole	-	3.68	Observation: Now that is the master I remember.
 task.complete.master	nm35aahhkd07154_	splice	0.00-0.66+3.49-6.17	3.3	Agreement: You show excellent logical skills... for a meatbag.
 task.complete.master	nm35aahhkd07120_	splice	0.00-0.79+3.96-6.61	3.4	Commentary: Your brain is very un-meatbag-like.
 task.complete.master	nm35aahhkd07120_	splice	0.00-0.79+1.18-3.63	3.2	Commentary: That is a very clever turn of phrase, master.
 subagent.complete	nm35aahhkd07270_	splice	0.00-0.64+5.54-6.88	2.4	Assessment: ...a most involved procedure.
-subagent.complete	nm35aahhkd07401_	splice	0.00-0.67+6.58-9.37	3.8	Statement: The soldier seemed very startled, I must say.
 subagent.complete	nm35aahhkd07403_	splice	0.00-0.64+5.49-7.17	2.6	Answer: They will improve my performance.
 task.error	nm35aahhkd07079_	splice	0.00-0.61+6.00-7.05	1.9	Correction: I'll, uh, work on it, master...
 task.error	nm35aahhkd07012_	splice	0.00-0.90+2.05-3.34	2.4	Qualification: I spoke out of ignorance.
@@ -96,6 +95,7 @@ user.rebuke	nm35aahhkd07181_	whole	-	4.44	Retraction: I apologize, master. It is
 user.rebuke	nm35aahhkd07378_	splice	0.00-0.81+1.06-5.40	5.40	Objection: Oh, fine. Laugh at me, master.
 user.overload	nm35aahhkd07214_	splice	0.00-0.64+8.10-9.24	2.21	Statement: This may take awhile.
 user.overload	nm35aahhkd07319_	splice	0.00-0.492+4.155-5.30|~0.30|6.10-7.49	3.73	Answer: I could spend decades... and still not make a dent.
+user.overload	nm35aahhkd07023_	splice	0.00-0.83+4.74-6.84	3.46	Commentary: That would be a waste of my genius engineering.
 user.insult.world	nm35aahhkd07154_	splice	0.00-0.66+0.98-3.26	3.26	Agreement: This was my thought as well, master.
 user.insult.world	nm35aahhkd07144_	splice	0.00-0.59+4.59-6.39	3.11	Answer: That is meatbag logic for you.
 user.insult.world	nm35aahhkd07328_	splice	0.00-0.72+1.05-2.45	2.45	Statement: So it appears, master.
@@ -105,7 +105,12 @@ user.insult.droid	nm35aahhkd07069_	splice	0.00-0.53+1.849-4.914	3.95	Objection: 
 user.insult.droid	nm35aahhkd07163_	splice	0.00-0.516+2.404-5.531	4.09	Answer: You may not value your own existence, but I certainly do!
 user.insult.droid	nm35aahhkd07023_	splice	0.00-0.83+1.95-4.44	3.85	Commentary: I would truly hate to be turned into spare scrap, master.
 user.insult.droid	nm35aahhkd07357_	splice	0.00-0.84+1.39-3.87	3.74	Supplication: Please, master, have I not pleased you?
-danger.command	nm35aahhkd07122_	cut	0.00-4.44	4.44	Objection: I would not advise that, master.
+# 07122's sentence boundary is INVISIBLE to both silence passes. Master heard the
+# 4.44 cut run on into "There are safeguards present that..." and he was right:
+# "master." ends at 2.83 and "There" starts at 2.89, a 60ms gap that -38dB/0.20s
+# and -32dB/0.09s both miss, so hk47-gaps.tsv reports the next silence at 4.45.
+# Only the 10ms RMS envelope finds it. Do not "restore" this to 4.44.
+danger.command	nm35aahhkd07122_	cut	0.00-2.88	2.88	Objection: I would not advise that, master.
 danger.command	nm35aahhkd07208_	cut	0.00-4.43	4.43	Request: I only ask that you be oh so very careful, master.
 danger.command	nm35aahhkd07021_	whole	-	4.37	Caution: Shhhh, master! Such a function in a droid is highly illegal.
 danger.command	nm35aahhkd07205_	graft	nm17ac08hk01048_:0.00-0.74+2.96-4.48	2.58	Advisement: Far too dangerous to access.
