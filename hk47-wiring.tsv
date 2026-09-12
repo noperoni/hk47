@@ -25,6 +25,9 @@ session.resume	nm35aahhkd07254_	splice	0.00-0.67+3.33-5.24	2.8	Observation: This
 session.resume	nm35aahhkd07254_	splice	0.00-0.67+5.46-6.67	2.2	Observation: Thank you for recovering it.
 session.end	nm35aahhkd07431_	graft	nm35aahhkd07096_:0.00-0.96+0.00-3.08	4.1	Resignation: As you desire, master. Signing off.
 session.end	nm35aahhkd07423_	whole	-	6.11	As you desire, master. I cannot help but claim a small amount of relief. Signing off.
+session.end	nm35aahhkd07264_	graft	nm35aahhkd07433_:0.00-0.60+0.00-1.99	3.04	Statement: For now, please excuse me, master.
+session.end	nm35aahhkd07404_	graft	nm35aahhkd07433_:0.00-0.60+0.00-3.98	5.03	Statement: Beyond that, master, there is nothing more I can relate to you.
+session.end	nm35aahhkd07067_	graft	nm35aahhkd07433_:0.00-0.60+2.09-4.35	3.31	Statement: Obeying original command. Signing off.
 session.idle	nm35aahhkd07065_	whole	-	3.08	Observation: Organics have no sense of persistence.
 session.idle	nm35aahhkd07098_	splice	0.00-1.01+5.15-6.93	3.0	Resignation: Can we please go and shoot something now?
 session.idle	nm35aahhkd07060_	splice	0.00-0.66+5.73-8.37	3.5	Commentary: Shall we find something to kill to cheer ourselves up?
@@ -46,6 +49,9 @@ task.complete.master	nm35aahhkd07120_	splice	0.00-0.79+3.96-6.61	3.4	Commentary:
 task.complete.master	nm35aahhkd07120_	splice	0.00-0.79+1.18-3.63	3.2	Commentary: That is a very clever turn of phrase, master.
 subagent.complete	nm35aahhkd07270_	splice	0.00-0.64+5.54-6.88	2.4	Assessment: ...a most involved procedure.
 subagent.complete	nm35aahhkd07403_	splice	0.00-0.64+5.49-7.17	2.6	Answer: They will improve my performance.
+subagent.complete	nm35aahhkd07352_	graft	nm35aahhkd07433_:0.00-0.60+6.04-8.83	3.84	Statement: Yesss... they are now active.
+subagent.complete	nm35aahhkd07262_	graft	nm35aahhkd07433_:0.00-0.60+5.12-6.94	2.87	Statement: I will activate them now.
+subagent.complete	nm35aahhkd07311_	splice	0.00-0.45+5.45-7.48	2.87	Answer: A most gratifying discovery, in fact.
 task.error	nm35aahhkd07079_	splice	0.00-0.61+6.00-7.05	1.9	Correction: I'll, uh, work on it, master...
 task.error	nm35aahhkd07012_	splice	0.00-0.90+2.05-3.34	2.4	Qualification: I spoke out of ignorance.
 task.error	nm35aahhkd07181_	splice	0.00-0.73+1.17-2.70	2.7	Retraction: I apologize, master.
@@ -53,14 +59,26 @@ task.error	nm35aahhkd07054_	splice	0.00-0.86+1.24-2.67	2.7	Retraction: Did I say
 task.error	nm35aahhkd07417_	graft	nm35aahhkd07102_:0.00-0.62+3.76-6.98	4.2	Apology: I am afraid the operation did not succeed, master.
 tool.error	nm35aahhkd07412_	graft	nm35aahhkd07159_:0.00-0.82+8.36-9.21	1.9	Expletive: I am poking my own eye sockets!
 tool.error	nm35aahhkd07132_	splice	0.00-0.79+1.10-1.61	1.6	Qualification: Err...
+tool.error	nm35aahhkd07413_	graft	nm35aahhkd07079_:0.00-0.61+3.26-5.39	2.97	Correction: No... that is not it, either.
+tool.error	nm35aahhkd07413_	graft	nm35aahhkd07065_:0.00-0.63+8.05-11.16	4.24	Observation: That is a hinge, master.
+tool.error	nm17ac08hk01028_	graft	nm35aahhkd07159_:0.00-0.82+1.34-2.70	2.43	Expletive: You bucket of bolts! Ahem!
 input.required	nm35aahhkd07212_	graft	nm35aahhkd07375_:0.00-0.49+4.69-5.54	1.87	Query: Could we begin?
 input.required	nm35aahhkd07084_	graft	nm35aahhkd07375_:0.00-0.49+5.47-6.61	2.16	Query: Does that suffice?
 input.required	nm35aahhkd07013_	graft	nm35aahhkd07375_:0.00-0.49+4.20-5.20	2.02	Query: Right... master?
 input.required	nm35aahhkd07363_	graft	nm35aahhkd07375_:0.00-0.49+1.22-2.31	2.11	Query: Should I, master?
+# input.question stays at two, and that was re-checked 2026-09-12. round-inputq
+# already put eight in front of Master and he kept these two. Every remaining
+# question in the corpus is welded to Yuka Laka, the restraining bolt or the
+# actuator, so it would need explaining rather than hearing. No new source, no
+# new candidate.
 input.question	nm35aahhkd07150_	whole	-	6.78	Query: Would you rather be caught with contraband that is very illegal or just a little illegal?
 input.question	nm35aahhkd07426_	graft	nm35aahhkd07375_:0.00-0.49+0.00-1.48|2.64-3.32	3.18	Query: Are you ready to begin, master?
 input.declined	nglobehhkd07558_	whole	-	4.5	Statement: Oh, master. I'm so very disappointed in you.
 input.declined	nm35aahhkd07069_	splice	0.00-0.56+0.92-1.60	1.6	Objection: But Master!
+input.declined	nm35aahhkd07067_	graft	nm35aahhkd07181_:0.00-0.73+0.00-1.63	2.80	Retraction: Err... ignore that, master.
+input.declined	nm35aahhkd07090_	splice	0.00-0.54+1.19-2.68	2.41	Statement: Then there is nothing I can do, master.
+input.declined	nm35aahhkd07326_	splice	0.00-0.70+1.08-3.25	3.20	Objection: That is unfair, master.
+input.declined	nm35aahhkd07418_	splice	0.00-0.99+1.67-5.04	5.01	Supplication: Perhaps it would be best if you desisted your efforts for the moment.
 resource.limit	nm35aahhkd07029_	graft	nm35aahhkd07375_:0.00-0.49+2.81-3.32|~0.12|4.12-4.60	2.13	Query: My memory, remember?
 resource.limit	nm35aahhkd07110_	splice	0.00-0.70+6.48-8.40	3.07	Observation: I cannot control this process, however.
 resource.limit	nm35aahhkd07015_	splice	0.00-0.50+4.11-7.06	3.9	Answer: Several systems are not operating as they should be.
@@ -80,10 +98,16 @@ user.continue	nm35aahhkd07421_	splice	0.00-0.66+0.96-2.06	2.06	Statement: As you
 user.continue	nm35aahhkd07295_	splice	0.00-0.57+0.99-2.39	2.39	Answer: Certainly. Why not?
 user.continue	nm35aahhkd07425_	splice	0.00-0.677+1.059-3.446	3.41	Statement: Certainly, master.
 user.continue	nm35aahhkd07096_	splice	0.00-0.88+2.45-3.48	2.14	Resignation: Very well, master.
-# user.opinion is THIN: one clip. Fires at UserPromptSubmit, before any answer
-# exists, so verdict lines are barred: they would commit me to a conclusion I
-# have not reached. Acknowledgement only. Sweep for companions later.
+# user.opinion is THIN and now deliberately so: two clips. It fires at
+# UserPromptSubmit, before any answer exists, so verdict lines are barred, since
+# they would commit me to a conclusion I have not reached. Acknowledgement only.
+# THE SWEEP HAPPENED, 2026-09-12, over all 202 unused clips: round-opinion and
+# round-opinion2 had already spent the obvious ones and Master kept one of nine.
+# What is left in the corpus is either a verdict, or welded to Yuka Laka, the
+# restraining bolt or the actuator, or assumes he is Revan. Two is the answer,
+# not a shortfall. Do not sweep this key again without new source audio.
 user.opinion	nm35aahhkd07188_	graft	nm35aahhkd07012_:0.00-0.90+5.64-6.30+6.84-8.63	4.12	Qualification: It is... difficult to explain, master.
+user.opinion	nm35aahhkd07301_	splice	0.00-0.60+1.07-3.32	3.27	Statement: I have no idea, master.
 user.delete	nm17ac08hk01002_	graft	nm35aahhkd07375_:0.00-0.49+5.37-6.96	2.61	Query: Shall I kill something for you?
 user.delete	nm35aahhkd07073_	graft	nm35aahhkd07357_:0.00-0.84+6.01-8.00	3.25	Supplication: Allow me to kill something in your honor!
 user.delete	nm35aahhkd07117_	splice	0.00-0.79+4.95-7.66	4.00	Observation: I am still well-capable of killing most anything for you.

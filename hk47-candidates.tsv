@@ -1,7 +1,31 @@
-# scratch, overwritten every round. Round: skill.invoke (a skill or slash command is loading).
+# scratch, overwritten every round. Round: the thin keys, take 2 (2026-09-12).
+#
+# Every resref below is NEW: checked against every wav already under audition/,
+# so nothing Master already turned down in round-opinion, round-opinion2,
+# round-declined or round-inputq is offered to him a second time.
+#
+# TAKE 1 SHIPPED THREE CUTS INSIDE A WORD AND THE EDGE SWEEP PASSED ALL THREE.
+# That is a limit of the sweep, not a bug in it: its test is that a cut lands at
+# a dip, and a breath inside a word IS a dip. "un|fair" has a 140ms one, "i|dea"
+# has 70ms, and "meatb--" is a 100ms burst of its own. Reading the dip LIST is
+# not enough; the envelope SHAPE has to be read, because a word end falls and
+# stays down while a breath dips and climbs straight back into the same word.
+#
+# 07198 was struck on Master's ruling, not on audio: lines that assume he is
+# Revan do not transfer, and he has no pupil.
+#
 # category	resref	op	spans	seconds	label
-skill.invoke	nm35aahhkd07428_	whole	-	3.41	Statement: Simulation initiating.
-skill.invoke	nm17ac08hk01061_	cut	0.00-3.90	3.90	Disclosure: I am a versatile protocol and combat droid.
-skill.invoke	nm35aahhkd07207_	splice	0.00-0.79+4.53-7.28	4.04	Affirmative: Then I can certainly guide you through the process.
-skill.invoke	nm17ac08hk01036_	graft	nm35aahhkd07433_:0.00-0.60+3.61-6.73	4.17	Statement: My capabilities are quite expansive.
-skill.invoke	nm17ac08hk01071_	splice	0.00-0.72+4.42-8.85	5.45	Disclosure: I am capable of eliminating a very... specific type of target.
+user.opinion	nm35aahhkd07301_	splice	0.00-0.60+1.07-3.32	3.3	Statement: I have no idea, master.
+input.declined	nm35aahhkd07067_	graft	nm35aahhkd07181_:0.00-0.73+0.00-1.63	2.8	Retraction: Err... ignore that, master.
+input.declined	nm35aahhkd07090_	splice	0.00-0.54+1.19-2.68	2.4	Statement: Then there is nothing I can do, master.
+input.declined	nm35aahhkd07326_	splice	0.00-0.70+1.08-3.25	3.2	Objection: That is unfair, master.
+input.declined	nm35aahhkd07418_	splice	0.00-0.99+1.67-5.04	5.0	Supplication: Perhaps it would be best if you desisted your efforts for the moment.
+session.end	nm35aahhkd07264_	graft	nm35aahhkd07433_:0.00-0.60+0.00-1.99	3.0	Statement: For now, please excuse me, master.
+session.end	nm35aahhkd07404_	graft	nm35aahhkd07433_:0.00-0.60+0.00-3.98	5.0	Statement: Beyond that, master, there is nothing more I can relate to you.
+session.end	nm35aahhkd07067_	graft	nm35aahhkd07433_:0.00-0.60+2.09-4.35	3.3	Statement: Obeying original command. Signing off.
+subagent.complete	nm35aahhkd07352_	graft	nm35aahhkd07433_:0.00-0.60+6.04-8.83	3.8	Statement: Yesss... they are now active.
+subagent.complete	nm35aahhkd07262_	graft	nm35aahhkd07433_:0.00-0.60+5.12-6.94	2.8	Statement: I will activate them now.
+subagent.complete	nm35aahhkd07311_	splice	0.00-0.45+5.45-7.48	2.9	Answer: A most gratifying discovery, in fact.
+tool.error	nm35aahhkd07413_	graft	nm35aahhkd07079_:0.00-0.61+3.26-5.39	3.2	Correction: No... that is not it, either.
+tool.error	nm35aahhkd07413_	graft	nm35aahhkd07065_:0.00-0.63+8.05-11.16	4.2	Observation: That is a hinge, master.
+tool.error	nm17ac08hk01028_	graft	nm35aahhkd07159_:0.00-0.82+1.34-2.70	2.6	Expletive: You bucket of bolts! Ahem!
