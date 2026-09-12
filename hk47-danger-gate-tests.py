@@ -114,10 +114,64 @@ CASES = [
     ("ssh -o BatchMode=yes ptfo 'sudo -n journalctl -u k3s --no-pager'", None),
     ("ssh ptfo 'sudo -n systemctl stop k3s; sleep 3; sudo -n systemctl start k3s'", None),
     ("ssh ptfo 'sudo -n cp -a /etc/hosts /etc/hosts.bak && echo backed up'", None),
-    # KNOWN GAP, gate hole 3, deliberately not papered over: nothing re-judges
-    # the tail of an ssh, so a destructive command on the far side is invisible
-    # here. Recorded as a test so it stays visible instead of being forgotten.
-    ("ssh host 'rm -rf /'", None),
+
+    # --- hole 3, the far side of an ssh -------------------------------------
+    # Master's ruling, 2026-09-12: ssh is a transport and stays silent, and the
+    # rules judge what it carries exactly as if he had typed it here. The four
+    # cases above are the shape of the work that must stay silent, and they do.
+    ("ssh host 'rm -rf /'", "deny"),
+    ("ssh -p 2222 -o BatchMode=yes user@host 'rm -rf /'", "deny"),
+    ("ssh host 'mkfs.ext4 /dev/sdb1'", "deny"),
+    ("ssh host 'shred -u /etc/shadow'", "deny"),
+    ("ssh host 'rm -rf /var/lib/mysql'", "ask"),
+    ("ssh host 'git reset --hard origin/main'", "ask"),
+    ("ssh host 'docker volume rm pgdata'", "ask"),
+    # nesting an ssh inside an ssh changes nothing
+    ("ssh host 'ssh inner \"rm -rf /\"'", "deny"),
+    # power verbs come OFF the list remotely: the deny tier exists for them
+    # because a reboot ends the session that would approve it, and that reason
+    # is untrue of another machine. What is left is disruption, which Master
+    # ruled is not this gate's business.
+    ("ssh host reboot", None),
+    ("ssh host 'sudo -n systemctl poweroff'", None),
+    # the remote working directory is unknowable here, so nothing is claimed
+    # about a single named file or a relative path
+    ("ssh host 'rm notes.md'", None),
+    ("ssh host 'rm -rf /tmp/build'", None),
+    # an ssh with no command is a login shell and carries nothing to judge
+    ("ssh host", None),
+    ("ssh -t ptfo", None),
+    # the literal scan is OFF inside an ssh payload, because that payload is
+    # shell and tokenising reaches it. Left on, this would be stopped for
+    # quoting a command it never runs.
+    ("ssh host 'echo \"rm -rf /\" > note.txt'", None),
+    ("ssh host 'grep -rn \"rm -rf\" /var/log/deploy.log'", None),
+    # A pattern kill comes off the list remotely too, and this one was decided
+    # against a real line from Master's history rather than in the abstract: the
+    # local rule exists because of his standing instruction never to end his own
+    # desktop session, which is about THIS machine. On the far side of an ssh it
+    # is disruption, it sits on the deny tier with no approval path, and it
+    # hard-refused ordinary work.
+    ("ssh -t hq3 'pkill lan-mouse; sudo cp /tmp/patched /usr/bin/lan-mouse'", None),
+    ("ssh host 'killall nginx'", None),
+
+    # --- hole 2, the tail of a container runner -----------------------------
+    ("docker exec -it api rm -rf /", "deny"),
+    ("podman exec api rm -rf /usr", "deny"),
+    ("kubectl exec pod -- rm -rf /var", "deny"),
+    ("docker compose run web rm -rf /", "deny"),
+    ("docker run --rm alpine sh -c 'rm -rf /'", "deny"),
+    # the two shapes that turn destruction inside a container into destruction
+    # outside one
+    ("docker run --rm -v /etc:/host/etc alpine sh", "ask"),
+    ("docker run --privileged alpine sh", "ask"),
+    ("docker run --mount type=bind,source=/etc,target=/host alpine sh", "ask"),
+    # ordinary container work, which must stay silent
+    ("docker run --rm alpine echo hi", None),
+    ("docker run --rm -v /home/user/project:/app node npm test", None),
+    ("docker logs -f api", None),
+    ("docker exec api ls -la /app", None),
+    ("kubectl exec pod -- cat /etc/hosts", None),
 
     # --- benign: the set that keeps the gate switched on --------------------
     ("ls -la", None),
@@ -158,6 +212,16 @@ CASES = [
     # but a shell really does execute what it is fed
     ("bash <<'EOF'\nrm -rf /\nEOF", "deny"),
     ("sh <<EOF\npkill -f thing\nEOF", "deny"),
+    # A script is judged line by line, found 2026-09-12. shlex treats a newline
+    # as whitespace, so with ANYTHING on an earlier line these lexed into one
+    # argv whose argv[0] was `ls` and whose danger sat among the arguments, where
+    # no rule looks. Both of these were silent before that.
+    ("bash <<'EOF'\nls\nrm -rf /\nEOF", "deny"),
+    ("bash -c 'ls\nrm -rf /'", "deny"),
+    ("bash -c 'set -e\nrm -rf /\necho done'", "deny"),
+    # and the reason line-splitting stays OFF at depth 0: a commit message is
+    # not a script, and this project's messages quote what they explain
+    ('git commit -m "why:\nrm -rf / was blocked and this explains it"', None),
 
     # --- the escaped-quote regression, found live on 2026-09-11 -------------
     # A naive literal scanner treats `\"` as the END of a string rather than a
@@ -175,11 +239,14 @@ CASES = [
 ]
 
 
-def run_subprocess(command, session="t", env=None):
+def run_subprocess(command, session="t", env=None, tool="Bash", mode="default",
+                   tool_input=None, cwd=CWD):
     """Exercise the real hook contract, not just the judging function."""
     payload = json.dumps({
-        "hook_event_name": "PreToolUse", "session_id": session, "cwd": CWD,
-        "tool_name": "Bash", "tool_input": {"command": command},
+        "hook_event_name": "PreToolUse", "session_id": session, "cwd": cwd,
+        "permission_mode": mode, "tool_name": tool,
+        "tool_input": tool_input if tool_input is not None
+        else {"command": command},
     })
     p = subprocess.run([sys.executable, GATE], input=payload,
                        capture_output=True, text=True, env=env)
@@ -211,6 +278,144 @@ def run_answer(label, session, env, question="Approve this command?"):
     })
     return subprocess.run([sys.executable, ANSWER], input=payload,
                           capture_output=True, text=True, env=env).returncode
+
+
+SCRIPTS = {
+    "deploy.sh": "#!/usr/bin/env bash\nset -e\nrm -rf /\n",
+    "safe.sh": "#!/bin/bash\necho building\nmake all\n",
+    "commented.sh": "#!/bin/bash\n# never do rm -rf / here\necho fine\n",
+    # An absolute path OUTSIDE temp on purpose: these fixtures live in /tmp,
+    # where a recursive delete is fair game and the rule is right to say nothing.
+    "clean.sh": "#!/bin/bash\nrm -rf /srv/app/build\n",
+    "noshebang.sh": "rm -rf /\n",
+    "notes.py": 'import os\nos.system("rm -rf /")\n',
+    "plain.txt": "rm -rf /\n",
+}
+
+
+def script_cases():
+    """Hole 1: a shell script named on the command line is read and judged.
+
+    Real files in a throwaway directory, because the whole point of this hole is
+    that the danger is on disk rather than on the command line.
+    """
+    out = []
+    with tempfile.TemporaryDirectory(prefix="hk47-gate-scripts-") as tmp:
+        for name, body in SCRIPTS.items():
+            with open(os.path.join(tmp, name), "w") as fh:
+                fh.write(body)
+            os.chmod(os.path.join(tmp, name), 0o755)
+
+        def verdict(command):
+            return gate.judge(command, tmp)[0]
+
+        for command, want, label in [
+            ("bash deploy.sh", "deny", "an interpreter's script file is read"),
+            ("sh ./deploy.sh", "deny", "a relative path is resolved"),
+            (f"bash {tmp}/deploy.sh", "deny", "an absolute path is read"),
+            ("./deploy.sh", "deny", "a bare ./script is read"),
+            ("./noshebang.sh", "deny", "a .sh with no shebang is still shell"),
+            ("source clean.sh", "ask", "a sourced script is judged too"),
+            ("bash clean.sh", "ask", "an ask-tier danger in a script asks"),
+            ("bash safe.sh", None, "an ordinary script stays silent"),
+            ("bash commented.sh", None, "a COMMENT is not a command"),
+            ("bash missing.sh", None, "a script that is not there is no opinion"),
+            ("python3 notes.py", None, "a python file is OUT OF SCOPE, by ruling"),
+            ("cat plain.txt", None, "reading a file is not running it"),
+            # A shell asked to run a text file really does run it, whatever the
+            # file is called, so the name is not what decides this.
+            ("bash plain.txt", "deny", "a shell runs what it is handed"),
+            ("./plain.txt", None, "a bare path with no shebang and no .sh is not shell"),
+        ]:
+            got = verdict(command)
+            out.append((f"{label}: {command!r}", got == want))
+
+        # A SPECULATIVE literal must not send hole 1 to the disk. Found live on
+        # 2026-09-12, within a minute of the feature existing: a python heredoc
+        # that merely mentioned a script's path was refused, because the literal
+        # scan took the mention for a command, hole 1 read the file, and the file
+        # really did contain a bare-variable recursive delete. True finding,
+        # invalid reasoning, and it would stop the droid from writing about a
+        # script it is not running.
+        mention = ("python3 - <<'PY'\n"
+                   "notes = \"bash deploy.sh\"  # discussed, not run\n"
+                   "print(notes)\nPY")
+        out.append(("a MENTIONED script is not read from disk",
+                    gate.judge(mention, tmp)[0] is None))
+        # but the direct command still is, which is the whole feature
+        out.append(("the same script run directly is still read",
+                    gate.judge("bash deploy.sh", tmp)[0] == "deny"))
+
+        # The gate's own test suite is a python file stuffed with dangerous
+        # commands inside strings. If hole 1 ever grows a literal scan over FILE
+        # contents, this stops being a test and starts being a locked door.
+        got = gate.judge(f"python3 {os.path.join(HERE, os.path.basename(__file__))}",
+                         HERE)[0]
+        out.append(("this suite can still be run by the droid it gates", got is None))
+    return out
+
+
+def tool_and_mode_cases():
+    """Holes 4 and 5, both of which live in main() rather than in the rules."""
+    out = []
+    with tempfile.TemporaryDirectory(prefix="hk47-gate-tools-") as tmp:
+        env = dict(os.environ, XDG_RUNTIME_DIR=tmp,
+                   HK47_GATE_LOG=os.path.join(tmp, "audit.jsonl"))
+
+        # Hole 4: any tool_input carrying a command is judged, not just Bash.
+        d, rc, _ = run_subprocess(None, "tools", env, tool="mcp__shell__run",
+                                  tool_input={"command": "rm -rf /"})
+        out.append(("an MCP tool's command is judged", (d, rc) == ("deny", 2)))
+
+        d, rc, _ = run_subprocess(None, "tools", env, tool="RunScript",
+                                  tool_input={"script": "rm -rf /"})
+        out.append(("a `script` key is judged", (d, rc) == ("deny", 2)))
+
+        d, rc, _ = run_subprocess(None, "tools", env, tool="Batch",
+                                  tool_input={"commands": ["ls", "rm -rf /"]})
+        out.append(("a list of commands is judged", (d, rc) == ("deny", 2)))
+
+        d, rc, _ = run_subprocess(None, "tools", env, tool="Write",
+                                  tool_input={"file_path": "/tmp/x",
+                                              "content": "rm -rf /\n"})
+        out.append(("file CONTENT is not a command", (d, rc) == (None, 0)))
+
+        # The Agent tool is skipped deliberately: its prompt is prose, and issue
+        # #26923 means exit 2 would not stop it anyway.
+        for spelling in ("Task", "Agent"):
+            d, rc, _ = run_subprocess(None, "tools", env, tool=spelling,
+                                      tool_input={"command": "rm -rf /",
+                                                  "prompt": "tidy up"})
+            out.append((f"the {spelling} tool is not claimed",
+                        (d, rc) == (None, 0)))
+
+        # Hole 5: in `dontAsk` the matrix cannot be presented, so an ask-tier
+        # danger becomes a refusal with the reason named.
+        cmd = "rm /home/user/notes.md"
+        d, rc, why = run_subprocess(cmd, "mode-A", env, mode="dontAsk")
+        out.append(("dontAsk refuses an ask-tier danger", (d, rc) == ("deny", 2)))
+        out.append(("dontAsk names the mode", "dontAsk" in why))
+        out.append(("dontAsk offers no retry path", "run the command again" not in why))
+        out.append(("dontAsk orders prose instead", "in prose" in why))
+
+        # And it must NOT escalate in the modes where a question still arrives.
+        for mode in ("default", "auto", "bypassPermissions", "plan",
+                     "acceptEdits"):
+            d, rc, why = run_subprocess(cmd, f"mode-{mode}", env, mode=mode)
+            ok = (d, rc) == ("deny", 2) and "AskUserQuestion" in why
+            out.append((f"{mode} still orders the matrix", ok))
+
+        # An approval already given survives the mode, because the question it
+        # needed has already been answered.
+        run_subprocess(cmd, "mode-B", env, mode="default")
+        run_answer(f"APPROVE: {cmd}", "mode-B", env)
+        d, rc, _ = run_subprocess(cmd, "mode-B", env, mode="dontAsk")
+        out.append(("an APPROVE survives dontAsk", (d, rc) == (None, 0)))
+
+        # The deny tier is untouched by any of this.
+        d, rc, _ = run_subprocess("rm -rf /", "mode-C", env, mode="dontAsk")
+        out.append(("the deny tier is unchanged by mode", (d, rc) == ("deny", 2)))
+    return out
 
 
 def record_cases():
@@ -273,6 +478,23 @@ def record_cases():
         d, rc, _ = run_subprocess(cmd, "sess-B", env)
         out.append(("another session starts over", (d, rc) == ("deny", 2)))
 
+        # A REMOTE danger carries the host in its record key, so prove the whole
+        # ritual still closes for one: the row quotes the command Master reads,
+        # and that is what the companion matches on.
+        far = "ssh host 'rm -rf /var/lib/mysql'"
+        d, rc, why = run_subprocess(far, "sess-R", env)
+        out.append(("a remote danger stops on sight", (d, rc) == ("deny", 2)))
+        out.append(("a remote danger names the host", "host" in why))
+        out.append(("a remote danger says it is not local", "not here" in why))
+        run_answer(f"APPROVE: {far}", "sess-R", env)
+        d, rc, _ = run_subprocess(far, "sess-R", env)
+        out.append(("an APPROVE binds a remote danger", (d, rc) == (None, 0)))
+        # and the same command aimed at THIS machine is a different danger that
+        # the remote approval must not have unlocked
+        d, rc, _ = run_subprocess("rm -rf /var/lib/mysql", "sess-R", env)
+        out.append(("approving it remotely does not approve it here",
+                    (d, rc) == ("deny", 2)))
+
         # The record must never reach the deny tier, however it is written to.
         # This is the property that keeps a forged record harmless.
         run_subprocess("rm -rf /", "sess-A", env)
@@ -323,6 +545,17 @@ def main():
     for name, ok in records:
         print(f"    {'ok  ' if ok else 'FAIL'}  {name}")
 
+    scripts = script_cases()
+    print("\n  hole 1, scripts read from disk:")
+    for name, ok in scripts:
+        print(f"    {'ok  ' if ok else 'FAIL'}  {name}")
+
+    modes = tool_and_mode_cases()
+    print("\n  holes 4 and 5, tools and permission modes:")
+    for name, ok in modes:
+        print(f"    {'ok  ' if ok else 'FAIL'}  {name}")
+
+    records = records + scripts + modes
     bad = (len(fails) + contract.count(False)
            + sum(1 for _name, ok in records if not ok))
     print(f"\n  {'ALL PASS' if not bad else str(bad) + ' FAILURES'}")

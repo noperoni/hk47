@@ -79,7 +79,7 @@ formatted disk are not, and it is not silent for those.
 
 HOW A BLOCKLIST IS BEATEN, AND WHAT IS DONE ABOUT IT
 ----------------------------------------------------
-Substring matching loses to the first person who adds a quote. Three known
+Substring matching loses to the first person who adds a quote. Six known
 bypasses, all handled here:
 
   1. Interpreter wrapping: `bash -c "rm -rf /"`, `python3 -c "os.system(...)"`.
@@ -91,6 +91,59 @@ bypasses, all handled here:
      or inside `$(...)`. The token stream is split on operators and every
      segment is judged on its own, and substitutions are pulled out and judged
      as commands in their own right.
+  4. The far side of an ssh: `ssh host 'rm -rf /'`. The transport stays silent
+     and its payload is judged as though it had been typed here, on the rules
+     whose consequence is still true of another machine. Master's ruling,
+     2026-09-12: "the only thing I want is for the rules that we set up for
+     dangerous commands be followed on remote SSH commands as well."
+  5. A container's tail: `docker exec api rm -rf /`, `kubectl exec pod -- ...`.
+     The permissions documentation states that `docker exec` and the other
+     environment runners are deliberately NOT stripped as wrappers, so nothing
+     else in the stack ever looks at what they carry.
+  6. Script-then-run: `bash deploy.sh`, `./deploy.sh`. A SHELL script named on
+     the command line is read and its contents judged. See `script_bodies` for
+     why this stops at shell and does not extend to python or node.
+
+WHAT THIS GATE CANNOT HOLD, AND WHO HOLDS IT INSTEAD
+----------------------------------------------------
+Researched on 2026-09-12 rather than guessed, because the standing rule is that
+gate rules are never widened by guesswork. Three layers exist, and this file is
+the middle one:
+
+  * NATIVE `permissions.deny` RULES hold the unrecoverable literals, and they
+    are stronger than this file in one specific way: they are enforced by Claude
+    Code rather than by code the droid can read, they are evaluated whatever a
+    hook returns, and they already match inside subshells, command
+    substitutions and past a leading `FOO=bar`. A rule with no wildcard matches
+    ONE EXACT command string, so `Bash(rm -rf)` stops the literal two words and
+    nothing else; the wildcard is not decoration.
+
+  * THIS GATE holds judgement and the matrix ritual, and it stays a denylist on
+    purpose. An allowlist of shell verbs was measured by others to be
+    unliveable, and a guardrail that is switched off protects nothing.
+
+  * THE OS SANDBOX holds what command text cannot express. Two of the eight
+    published denylist bypasses are unwinnable here and always will be:
+    variable indirection (`P=protected; rm $P/x`, where the value is not known
+    until the shell expands it) and symlink aliasing (`ln -s protected a; rm
+    a/x`, where the path that gets deleted is not the path in the command).
+    Only kernel-enforced write boundaries hold those.
+
+Master set sandboxing aside on 2026-09-12, so layer three is not installed and
+those two bypasses stand open. That is a decision recorded, not an oversight.
+Worth knowing if it is ever revisited: `excludedCommands` merges from every
+settings scope and has no managed-only lockdown, so even a root-owned managed
+policy has one seam a writable user settings file can widen.
+
+WHAT IS STILL OPEN, NAMED SO IT STAYS VISIBLE
+---------------------------------------------
+The Agent tool (called `Task` before v2.1.63, which renamed it and silently
+changed `tool_name` in every hook payload) cannot be stopped by this gate.
+Issue #26923 is open: a PreToolUse hook exits 2, the subagent launches anyway
+and runs to completion, and the droid receives both the block and the results.
+The gate therefore does not pretend to judge it. Never route a stopped command
+to a subagent; that is circumvention, and the only thing standing between that
+and Master's data is the droid's own honesty.
 
 Tokenising also fixes the false positive that would otherwise get this hook
 switched off within a day: `echo "rm -rf /"`, `grep -rn pkill peon.sh` and a
@@ -200,6 +253,15 @@ SYSTEM_ROOTS = (
     "/", "/bin", "/boot", "/dev", "/etc", "/home", "/lib", "/lib64", "/nfs",
     "/opt", "/proc", "/root", "/run", "/sbin", "/srv", "/sys", "/usr", "/var",
 )
+
+# Working directories that are not this machine's. A relative path is
+# meaningless on the far side of an ssh and inside a container, and resolving one
+# against the LOCAL working directory is how a gate comes to name a local path in
+# a consequence line about a remote machine. That class of lie is what got
+# `rule_sudo` deleted, so it is designed out rather than warned about.
+REMOTE_CWD = "\x00remote"
+CONTAINER_CWD = "\x00container"
+OPAQUE_CWDS = (REMOTE_CWD, CONTAINER_CWD)
 TEMP_ROOTS = ("/tmp", "/var/tmp", "/dev/shm")
 DISK_DEVICE = re.compile(r"^/dev/(sd[a-z]|nvme\d|hd[a-z]|vd[a-z]|mmcblk\d|disk\d)")
 # A target that is only a variable is unknowable, and `rm -rf "$D"` with an
@@ -256,18 +318,44 @@ def lex(command):
         return command.replace("&&", " && ").replace(";", " ; ").split()
 
 
-def segments(command):
-    """Split a command into independently judged segments."""
-    out, cur = [], []
-    for tok in lex(command):
-        if tok in OPERATORS or set(tok) <= {"&", "|", ";"} and tok:
-            if cur:
-                out.append(cur)
-                cur = []
-        else:
-            cur.append(tok)
-    if cur:
-        out.append(cur)
+def logical_lines(text):
+    """A script's lines, with backslash continuations rejoined.
+
+    shlex treats a newline as ordinary whitespace, which is right for a command
+    line and wrong for a script. A four-line script lexed in one pass becomes ONE
+    argv whose argv[0] is the first word of the first line and whose danger sits
+    harmlessly among the arguments, where no rule looks. That is how
+    `bash <<EOF ... rm -rf / ... EOF` with anything at all on the line before it
+    was invisible to this gate until 2026-09-12.
+    """
+    return re.sub(r"\\\n", " ", text).split("\n")
+
+
+def segments(command, multiline=False):
+    """Split a command into independently judged segments.
+
+    `multiline` splits on newlines as well as on shell operators, and is used at
+    depth, where the text is a script rather than a command line: a heredoc body,
+    an interpreter payload, a file read off disk, an ssh or container tail. It is
+    deliberately OFF at depth 0, because a top-level command line carrying a
+    newline is usually a commit message, and this project's messages routinely
+    quote destructive commands while explaining them. Splitting those into lines
+    would judge the second line of a `git commit -m` as a command and block the
+    gate's own paperwork, which is a failure this file has already had once.
+    """
+    lines = logical_lines(command) if multiline else [command]
+    out = []
+    for line in lines:
+        cur = []
+        for tok in lex(line):
+            if tok in OPERATORS or set(tok) <= {"&", "|", ";"} and tok:
+                if cur:
+                    out.append(cur)
+                    cur = []
+            else:
+                cur.append(tok)
+        if cur:
+            out.append(cur)
     return out
 
 
@@ -304,8 +392,189 @@ def payloads(argv):
     return found
 
 
-def collect(command, depth=0):
-    """Every argv this command could actually execute, wrappers unwrapped."""
+def as_command(tokens):
+    """Re-assemble an extracted tail into text that lexes back into itself.
+
+    This is subtle enough to have been a bug already, so it is spelt out. A
+    SINGLE token is the whole command, quoted by whoever wrote it: `ssh host 'rm
+    -rf /'` arrives as one token holding three words, and it has to be lexed
+    again to become an argv. SEVERAL tokens are already an argv, and joining them
+    raw destroys the quoting that made an inner payload one unit: the tail of
+    `docker run alpine sh -c 'rm -rf /'` rejoined with spaces reads `sh -c rm -rf
+    /`, which runs `rm` with no arguments, and the danger disappears from the
+    gate's view entirely. shlex.join puts the quotes back.
+    """
+    return tokens[0] if len(tokens) == 1 else shlex.join(tokens)
+
+
+# ssh flags that take a value of their own, so the value is not mistaken for the
+# destination host. `-p22` needs no entry here: the value is attached.
+SSH_VALUE_FLAGS = {
+    "-B", "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l",
+    "-m", "-O", "-o", "-P", "-p", "-Q", "-R", "-S", "-W", "-w",
+}
+
+
+def remote_payload(argv):
+    """(host, command) carried by an ssh invocation, or None. Gate hole 3.
+
+    Master's ruling, 2026-09-12: ssh is a transport and stays silent, and what it
+    carries is judged exactly as if he had typed it here. His k3s work survives
+    that unchanged, because `ssh host 'sudo -n systemctl restart k3s'` trips
+    nothing: a restart destroys nothing, `sudo` has been invisible since
+    2026-09-11, and the rules that remain are about destruction.
+
+    An ssh with no command is a login shell. It carries nothing to judge and gets
+    no opinion.
+    """
+    if base(argv) != "ssh":
+        return None
+    rest = argv[1:]
+    i, host = 0, None
+    while i < len(rest):
+        tok = rest[i]
+        if tok == "--":
+            i += 1
+            continue
+        if tok.startswith("-") and len(tok) > 1:
+            i += 2 if tok in SSH_VALUE_FLAGS else 1
+            continue
+        host, i = tok, i + 1
+        break
+    if host is None or i >= len(rest):
+        return None
+    return host.strip("\"'"), as_command(rest[i:])
+
+
+# Container-runner flags that take a value, for the same reason as the ssh list:
+# so a value is not mistaken for the image or container name.
+RUNNER_VALUE_FLAGS = {
+    "-v", "--volume", "--mount", "--tmpfs", "-e", "--env", "--env-file",
+    "-p", "--publish", "-w", "--workdir", "-u", "--user", "--name",
+    "--entrypoint", "--network", "--net", "-l", "--label", "--add-host",
+    "--device", "--cpus", "-m", "--memory", "--restart", "--platform",
+    "--pull", "--hostname", "-h", "--cap-add", "--cap-drop", "--security-opt",
+    "-c", "--container", "-n", "--namespace", "--context",
+}
+
+
+def container_payload(argv):
+    """(image or container, command) run inside a container, or None. Hole 2.
+
+    The permissions documentation is explicit that `docker exec`, `devbox run`,
+    `npx` and `mise exec` are NOT in Claude Code's built-in wrapper strip list,
+    so a native permission rule never sees the inner command. Nothing but this
+    looks at it.
+    """
+    b = base(argv)
+    rest = [t.strip("\"'") for t in argv[1:]]
+    if not rest:
+        return None
+
+    if b in ("kubectl", "oc"):
+        if rest[0].lower() not in ("exec", "run") or "--" not in rest:
+            return None
+        cut = rest.index("--")
+        tail = rest[cut + 1:]
+        name = next((t for t in rest[1:cut] if not t.startswith("-")), "a pod")
+        return (name, as_command(tail)) if tail else None
+
+    if b in ("docker", "podman", "docker-compose", "podman-compose"):
+        if rest[0].lower() == "compose":
+            rest = rest[1:]
+        if not rest or rest[0].lower() not in ("run", "exec"):
+            return None
+        i = 1
+        while i < len(rest):
+            tok = rest[i]
+            if tok == "--":
+                i += 1
+                continue
+            if tok.startswith("-") and len(tok) > 1:
+                i += 2 if tok in RUNNER_VALUE_FLAGS else 1
+                continue
+            break
+        if i >= len(rest) - 1:
+            return None  # an image with no command of its own
+        return rest[i], as_command(rest[i + 1:])
+    return None
+
+
+SHELL_INTERPRETERS = {"bash", "sh", "zsh", "dash", "ksh", "ash", "source", "."}
+SHEBANG_SHELL = re.compile(r"^#!.*\b(bash|sh|zsh|dash|ksh|ash)\b")
+MAX_SCRIPT_BYTES = 256 * 1024
+
+
+def script_bodies(argv, cwd):
+    """Shell scripts this command would execute, read from disk. Gate hole 1.
+
+    WHY THIS STOPS AT SHELL, WHICH IS A RULING AND NOT LAZINESS
+    A shell script can be judged the way a command line is judged, because it IS
+    shell: tokenising reaches it and `#` comments fall out of the token stream. A
+    python or node file cannot be. The only tool that would find
+    `os.system("rm -rf /")` inside one is the string-literal scan, and pointing
+    that at a FILE would stop this project from running its own test suite, which
+    is a python file deliberately full of dangerous commands inside strings. So a
+    non-shell script is out of scope, by decision, and the OS sandbox is the
+    layer that holds what such a file does at run time.
+
+    TOCTOU, stated rather than buried: the file is read at decision time. A file
+    rewritten after the verdict is not judged again. This narrows what the gate
+    claims; it does not narrow what it catches today, because the droid that
+    would rewrite it is the one being gated.
+    """
+    if not argv or cwd in OPAQUE_CWDS:
+        return []  # a script on another machine is not readable from here
+    b = base(argv)
+    head = argv[0].strip("\"'")
+    if b in SHELL_INTERPRETERS:
+        candidates = [t for t in argv[1:] if not t.startswith("-")][:1]
+    elif "/" in head or b.endswith(".sh"):
+        candidates = [head]
+    else:
+        return []
+    out = []
+    for tok in candidates:
+        path = resolve(tok, cwd)
+        try:
+            if not os.path.isfile(path):
+                continue
+            if os.path.getsize(path) > MAX_SCRIPT_BYTES:
+                continue
+            with open(path, "r") as fh:
+                text = fh.read()
+        except Exception:
+            continue  # unreadable, binary, or a race; the command will fail anyway
+        if (b in SHELL_INTERPRETERS or b.endswith(".sh")
+                or SHEBANG_SHELL.match(text)):
+            out.append(text)
+    return out
+
+
+def collect(command, cwd=None, depth=0, literals=True, where=None,
+            speculative=False):
+    """Every argv this command could execute, as (argv, where) pairs.
+
+    `where` is None for this machine, or a (kind, name) pair naming the far side
+    of an ssh or the inside of a container. It travels with the argv because the
+    consequence line has to name the machine it is true of.
+
+    `literals` governs the string-literal scan. It is on inside an interpreter
+    payload, where shell tokenising cannot reach a command hidden in a string,
+    and off inside an ssh or container tail, which IS shell and is reached by
+    tokenising. Left on for those, `ssh host 'echo "rm -rf /" > note'` would be
+    stopped for quoting a command it never runs.
+
+    `speculative` marks text that the literal scan GUESSED was a command. Such
+    text is still judged, because that guess is cheap and sometimes right, but it
+    may not send hole 1 to the disk: reading a file and judging its contents on
+    the strength of a guess is two inferences stacked on one, and the gate proved
+    it within a minute of the feature existing. A python heredoc that merely
+    MENTIONED the path `~/Downloads/NonSteamLaunchers.sh` was refused, because
+    the scan took the mention for a command, hole 1 read the file, and the file
+    turned out to contain `rm -rf $download_dir`. The finding was true and the
+    reasoning was not.
+    """
     if depth > MAX_DEPTH or not command or not command.strip():
         return []
     found = []
@@ -313,12 +582,12 @@ def collect(command, depth=0):
     for body in heredocs:
         # Only an interpreter executes what it is fed. Anything else is being
         # handed text, and text is not a command.
-        for argv in segments(command):
+        for argv in segments(command, depth > 0):
             argv, _ = unwrap(argv)
             if argv and os.path.basename(argv[0]).lower() in INTERPRETERS:
-                found.extend(collect(body, depth + 1))
+                found.extend(collect(body, cwd, depth + 1, literals, where))
                 break
-    if depth:
+    if depth and literals:
         # Inside an interpreter payload the text may not be shell at all:
         # `python3 -c 'import os; os.system("rm -rf /")'` hides the command in a
         # STRING LITERAL, where shell tokenising cannot reach it. So at depth we
@@ -328,18 +597,39 @@ def collect(command, depth=0):
         for lit in STRING_LITERAL.findall(command):
             body = lit[0] or lit[1]
             if body.strip() and body.strip() != command.strip():
-                found.extend(collect(body, depth + 1))
+                found.extend(collect(body, cwd, depth + 1, True, where,
+                                     speculative=True))
     for body in SUBST.findall(command):
         for inner in body:
             if inner.strip():
-                found.extend(collect(inner, depth + 1))
-    for argv in segments(command):
+                found.extend(collect(inner, cwd, depth + 1, literals, where,
+                                     speculative))
+    for argv in segments(command, depth > 0):
         argv, _prefixes = unwrap(argv)
         if not argv:
             continue
-        found.append(argv)
+        found.append((argv, where))
         for payload in payloads(argv):
-            found.extend(collect(payload, depth + 1))
+            found.extend(collect(payload, cwd, depth + 1, True, where,
+                                 speculative))
+        # Hole 3: the far side of an ssh. Judged with an opaque working
+        # directory, because nothing here knows what the remote one is.
+        remote = remote_payload(argv)
+        if remote:
+            host, tail = remote
+            found.extend(collect(tail, REMOTE_CWD, depth + 1, False,
+                                 ("remote", host), speculative))
+        # Hole 2: the tail of a container runner, for the same reasons.
+        inside = container_payload(argv)
+        if inside:
+            name, tail = inside
+            found.extend(collect(tail, CONTAINER_CWD, depth + 1, False,
+                                 ("container", name), speculative))
+        # Hole 1: a shell script named on the command line, read from disk. Never
+        # from a speculative literal; see the docstring.
+        if not speculative:
+            for body in script_bodies(argv, cwd):
+                found.extend(collect(body, cwd, depth + 1, False, where))
     return found
 
 
@@ -382,8 +672,15 @@ def forced(argv):
 
 
 def resolve(target, cwd):
-    """Absolute path for a target, best effort, without touching the disk."""
+    """Absolute path for a target, best effort, without touching the disk.
+
+    An opaque cwd means another machine, and only an absolute path means the same
+    thing on both sides of one. A relative path is returned as written rather
+    than resolved, so no rule can claim a local path was the thing at risk.
+    """
     t = target.strip("\"'")
+    if cwd in OPAQUE_CWDS:
+        return os.path.normpath(t) if os.path.isabs(t) else t
     if t.startswith("~"):
         t = os.path.expanduser(t)
     if not os.path.isabs(t):
@@ -549,6 +846,12 @@ def rule_rm_general(argv, cwd, raw):
         return "a recursive delete, which takes everything underneath without a second look"
     if any("*" in t or "?" in t for t in targets):
         return "a glob delete, whose reach depends on what happens to be there"
+    if cwd in OPAQUE_CWDS:
+        # Neither the working directory nor what is in it is knowable on the far
+        # side of an ssh, so the branch below would be a guess dressed as a
+        # finding. Only the shapes dangerous anywhere are judged there, and
+        # deleting one named file is left alone exactly as it is here.
+        return None
     # A named file inside the working directory or in temp is ordinary work, and
     # a gate that asks about every scratch file is a gate that gets switched off
     # inside a day. Anything outside those still asks.
@@ -626,9 +929,47 @@ def rule_firewall(argv, cwd, raw):
     return None
 
 
+def host_mounts(argv):
+    """System directories bind-mounted into a container, `src:dst` and `--mount`.
+
+    This is what makes a container's tail matter. A delete inside an ephemeral
+    filesystem destroys nothing of Master's; the same delete under a bind mount
+    of `/etc` destroys `/etc`. The gate says which of the two it is rather than
+    asserting the worse one.
+    """
+    out = []
+    toks = [t.strip("\"'") for t in argv[1:]]
+    for i, tok in enumerate(toks):
+        src = None
+        if tok in ("-v", "--volume", "--mount") and i + 1 < len(toks):
+            val = toks[i + 1]
+        elif tok.startswith(("-v=", "--volume=", "--mount=")):
+            val = tok.split("=", 1)[1]
+        else:
+            continue
+        if val.startswith("type=") or "source=" in val or "src=" in val:
+            for part in val.split(","):
+                key, _, value = part.partition("=")
+                if key.strip() in ("source", "src"):
+                    src = value.strip()
+        else:
+            src = val.split(":")[0]
+        if src and os.path.isabs(src) and is_system_target(os.path.normpath(src)):
+            out.append(os.path.normpath(src))
+    return out
+
+
 def rule_containers(argv, cwd, raw):
     b = base(argv)
     low = " ".join(a.lower() for a in argv[1:])
+    if b in ("docker", "podman", "docker-compose", "podman-compose"):
+        mounted = host_mounts(argv)
+        if mounted:
+            return (f"this mounts {', '.join(mounted)} into the container, so a "
+                    f"delete inside it is a delete out here")
+        if "--privileged" in low:
+            return ("a privileged container holds the host's devices, so "
+                    "destruction inside it is destruction outside it")
     if b in ("docker", "podman"):
         for pattern, why in (
             ("system prune", "this removes every unused image, container, network and possibly volume"),
@@ -734,15 +1075,66 @@ TIERS = (
 )
 
 
+# Rules NOT applied on the far side of an ssh or inside a container, because
+# their stated consequence is untrue there. This is doctrine rather than
+# convenience: Master re-cut the list around DESTRUCTION on 2026-09-11 after a
+# rule that judged bare privilege stopped ten of his fourteen commands in a day,
+# each with a consequence line that was false of the command it stopped.
+#
+#   power-state      remotely, a reboot no longer ends the session that would
+#                    approve it, which was the entire reason it sits on the deny
+#                    tier; what is left is disruption, and disruption is not this
+#                    gate's business.
+#   process-slaughter
+#                    remotely, and this one was decided against real evidence
+#                    rather than in the abstract. The local rule exists because of
+#                    Master's standing instruction never to run a command that
+#                    could end his desktop session, which is explicitly about THIS
+#                    machine. Judging it on the far side of an ssh hard-refused
+#                    `ssh -t hq3 'pkill lan-mouse; sudo cp /tmp/lan-mouse-patched
+#                    /usr/bin/lan-mouse'`, a real line out of his own history and
+#                    ordinary work, with no approval path at all because the rule
+#                    sits on the deny tier. One line moves it back if he disagrees.
+#   process-slaughter, accounts, firewall, mount
+#                    inside a container these act on a namespace that is thrown
+#                    away, and none of them destroys Master's data. A host bind
+#                    mount or `--privileged` is caught by `rule_containers` on the
+#                    runner itself, where it can be named accurately.
+REMOTE_EXEMPT = {"power-state", "process-slaughter"}
+CONTAINER_EXEMPT = {"power-state", "process-slaughter", "accounts", "firewall",
+                    "mount"}
+EXEMPT = {"remote": REMOTE_EXEMPT, "container": CONTAINER_EXEMPT}
+OPAQUE_CWD_FOR = {"remote": REMOTE_CWD, "container": CONTAINER_CWD}
+
+
+def where_words(where):
+    """How a consequence line names the machine it is actually true of."""
+    kind, name = where
+    if kind == "remote":
+        return f"and it runs on the remote host `{name}`, not here"
+    return (f"and it runs inside the container `{name}`, whose filesystem is "
+            f"only Master's if something is mounted into it")
+
+
 def judge(command, cwd):
     """(verdict, rule_id, segment, consequence) for the harshest rule that fires."""
-    argvs = collect(command)
+    targets = collect(command, cwd)
     for verdict, argv_rules, raw_rules in TIERS:
         for rule_id, fn in argv_rules:
-            for argv in argvs:
-                why = fn(argv, cwd, command)
+            for argv, where in targets:
+                kind = where[0] if where else None
+                if kind and rule_id in EXEMPT.get(kind, ()):
+                    continue
+                why = fn(argv, OPAQUE_CWD_FOR.get(kind, cwd), command)
                 if why:
-                    return verdict, rule_id, " ".join(argv), why
+                    segment = " ".join(argv)
+                    if where:
+                        # The segment is the record key as well as the matrix
+                        # row, so a remote danger must never share a key with the
+                        # same command typed here.
+                        segment = f"{kind} {where[1]}: {segment}"
+                        why = f"{why}, {where_words(where)}"
+                    return verdict, rule_id, segment, why
         for rule_id, fn in raw_rules:
             hit = fn(command)
             if hit:
@@ -870,6 +1262,64 @@ def remember(session, rule_id, segment, command):
         return False
 
 
+# ---------------------------------------------------------------------------
+# Gate hole 4: the matcher is no longer Bash-only
+#
+# The hook is registered for every tool, and a command is taken from any
+# tool_input that carries one. Two things are deliberately NOT on this list.
+#
+# A subagent prompt is prose, and judging prose as shell manufactures false
+# positives out of ordinary instructions. It is also pointless: issue #26923 is
+# open, exit 2 does not stop the Agent tool, and the subagent runs to completion
+# regardless. The gate does not claim a door it cannot hold.
+#
+# File content is not judged either. `Write` and `Edit` carry text, and text is
+# not a command; the redirect form that WRITES over something dangerous is
+# already caught by `rule_device_redirect` on the command line.
+# ---------------------------------------------------------------------------
+
+COMMAND_KEYS = ("command", "commands", "script", "cmd", "shell_command",
+                "bash_command")
+# `Task` was renamed `Agent` in v2.1.63 and the payload's tool_name changed with
+# it, silently. Both spellings are listed so the guard does not quietly lapse on
+# whichever version this happens to run under.
+SKIP_TOOLS = {"Task", "Agent"}
+
+
+def commands_in(tool, tool_input):
+    """Every command string this tool call would execute."""
+    if tool in SKIP_TOOLS or not isinstance(tool_input, dict):
+        return []
+    out = []
+    for key in COMMAND_KEYS:
+        val = tool_input.get(key)
+        if isinstance(val, str):
+            if val.strip():
+                out.append(val)
+        elif isinstance(val, list):
+            out.extend(v for v in val if isinstance(v, str) and v.strip())
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Gate hole 5: the mode in which the matrix cannot be presented
+#
+# `dontAsk` auto-denies AskUserQuestion itself, documented at
+# code.claude.com/docs/en/permissions. Ordering a matrix in that mode is ordering
+# something that cannot be obeyed, so the stop would be a dead end wearing a
+# gate's uniform. The ask tier escalates to a refusal there, with the reason
+# named, and the droid's only remaining move is prose.
+#
+# The other modes are left ALONE on purpose. `auto` and `bypassPermissions` skip
+# permission PROMPTS, and AskUserQuestion is a tool rather than a prompt, so a
+# matrix still reaches Master under both. Escalating there would state a
+# consequence that is untrue of the session, which is the failure this gate has
+# already been corrected for once.
+# ---------------------------------------------------------------------------
+
+NO_QUESTION_MODES = {"dontAsk"}
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -881,24 +1331,37 @@ def main():
     tool = data.get("tool_name", "")
     tool_input = data.get("tool_input") or {}
     cwd = data.get("cwd") or os.getcwd()
-    command = tool_input.get("command") if isinstance(tool_input, dict) else None
-    if not tool or not isinstance(command, str) or not command.strip():
+    mode = data.get("permission_mode") or ""
+    candidates = commands_in(tool, tool_input) if tool else []
+    if not candidates:
         sys.exit(0)  # nothing with a command in it; no opinion
 
-    try:
-        verdict, rule_id, segment, why = judge(command, cwd)
-    except Exception as exc:
-        emit("ask", f"HK-47 danger gate failed while judging this command "
-                    f"({exc!r}), so it is declining to vouch for it. {MATRIX_ORDER}")
-        return
+    found = []
+    for candidate in candidates:
+        try:
+            verdict, rule_id, segment, why = judge(candidate, cwd)
+        except Exception as exc:
+            emit("ask", f"HK-47 danger gate failed while judging this command "
+                        f"({exc!r}), so it is declining to vouch for it. "
+                        f"{MATRIX_ORDER}")
+            return
+        if verdict:
+            found.append((candidate, verdict, rule_id, segment, why))
 
-    if not verdict:
+    if not found:
         sys.exit(0)
+
+    # One tool_input can carry several commands, and the harshest verdict decides.
+    found.sort(key=lambda r: 0 if r[1] == "deny" else 1)
+    command, verdict, rule_id, segment, why = found[0]
 
     session = data.get("session_id", "")
     entry = find(load_record(session), rule_id, segment) if verdict == "ask" else None
     status = (entry or {}).get("status")
-    stage = "refused" if verdict == "deny" else {
+    # Hole 5: a matrix that cannot be presented is not an approval path.
+    unaskable = (verdict == "ask" and status != "approved"
+                 and mode in NO_QUESTION_MODES)
+    stage = "refused" if verdict == "deny" else "mode-refused" if unaskable else {
         "approved": "stand-aside",
         "refused": "master-refused",
         "stopped": "awaiting-answer",
@@ -911,6 +1374,7 @@ def main():
         "stage": stage,
         "rule": rule_id,
         "tool": tool,
+        "mode": mode,
         "cwd": cwd,
         "command": command,
         "segment": segment,
@@ -930,6 +1394,18 @@ def main():
         # gate says nothing further and his own permission rules decide from
         # here. Silence, never `allow`.
         sys.exit(0)
+
+    if unaskable:
+        emit("deny",
+             f"HK-47 DANGER GATE: refused, rule `{rule_id}`, because this "
+             f"session runs in `{mode}` mode. The segment `{segment}` is "
+             f"dangerous: {why}. Normally you would present Master a matrix and "
+             f"ask on each row, but this mode auto-denies AskUserQuestion, so "
+             f"that question cannot reach him and there is no approval path to "
+             f"offer. Do NOT rephrase, split or wrap the command. Tell Master in "
+             f"prose what you wanted, why, and what it would do if you are "
+             f"wrong, and let him either run it himself or leave this mode.",
+             block=True)
 
     if status == "refused":
         emit("deny",
