@@ -272,6 +272,22 @@ BARE_VARIABLE = re.compile(r"^[\"']?\$\{?\w+\}?[\"']?/?\*?$")
 HEREDOC = re.compile(r"<<-?\s*([\"']?)([A-Za-z_]\w*)\1")
 
 
+def heredoc_receiver(line, upto):
+    """The command on `line` that a heredoc at offset `upto` is actually fed to.
+
+    Found live on 2026-09-12, and it is the segment-attribution defect again,
+    wearing a different hat. The old code paired a heredoc body with ANY
+    interpreter appearing anywhere in the command, so
+
+        python3 tests.py ; git commit -F - <<'MSG' ... pkill ... MSG
+
+    had its COMMIT MESSAGE judged as a python payload, because a `python3` sat
+    three segments away. The receiver is the last segment before the `<<`, and
+    nothing else.
+    """
+    return re.split(r"\|\||&&|[;&|]", line[:upto])[-1]
+
+
 def strip_heredocs(command):
     """Lift heredoc bodies out of a command. Returns (command, bodies).
 
@@ -283,7 +299,8 @@ def strip_heredocs(command):
 
     The bodies are returned rather than discarded, because `bash <<EOF` really
     does execute its body, and the caller re-judges them when the receiving
-    command is an interpreter.
+    command is an interpreter. Each body is paired with the text of THAT
+    receiving command, so the judgement cannot be borrowed from a neighbour.
     """
     bodies = []
     lines = command.splitlines(True)
@@ -302,7 +319,7 @@ def strip_heredocs(command):
             body.append(lines[i])
             i += 1
         i += 1  # skip the terminator itself
-        bodies.append("".join(body))
+        bodies.append(("".join(body), heredoc_receiver(line, m.start())))
     return "".join(out), bodies
 
 
@@ -579,14 +596,14 @@ def collect(command, cwd=None, depth=0, literals=True, where=None,
         return []
     found = []
     command, heredocs = strip_heredocs(command)
-    for body in heredocs:
+    for body, receiver in heredocs:
         # Only an interpreter executes what it is fed. Anything else is being
-        # handed text, and text is not a command.
-        for argv in segments(command, depth > 0):
-            argv, _ = unwrap(argv)
-            if argv and os.path.basename(argv[0]).lower() in INTERPRETERS:
-                found.extend(collect(body, cwd, depth + 1, literals, where))
-                break
+        # handed text, and text is not a command. The receiver is the command the
+        # body is actually fed to, never whichever interpreter happens to appear
+        # elsewhere on the line.
+        argv, _ = unwrap(lex(receiver))
+        if argv and os.path.basename(argv[0].strip("\"'")).lower() in INTERPRETERS:
+            found.extend(collect(body, cwd, depth + 1, literals, where))
     if depth and literals:
         # Inside an interpreter payload the text may not be shell at all:
         # `python3 -c 'import os; os.system("rm -rf /")'` hides the command in a
@@ -1086,21 +1103,22 @@ TIERS = (
 #                    tier; what is left is disruption, and disruption is not this
 #                    gate's business.
 #   process-slaughter
-#                    remotely, and this one was decided against real evidence
-#                    rather than in the abstract. The local rule exists because of
-#                    Master's standing instruction never to run a command that
-#                    could end his desktop session, which is explicitly about THIS
-#                    machine. Judging it on the far side of an ssh hard-refused
-#                    `ssh -t hq3 'pkill lan-mouse; sudo cp /tmp/lan-mouse-patched
-#                    /usr/bin/lan-mouse'`, a real line out of his own history and
-#                    ordinary work, with no approval path at all because the rule
-#                    sits on the deny tier. One line moves it back if he disagrees.
+#                    NOT exempt remotely, and the reasoning behind the attempt is
+#                    kept because it was a mistake worth not repeating. It was
+#                    exempted on the strength of a real `ssh -t hq3 'pkill
+#                    lan-mouse; ...'` found in Master's shell history, and he
+#                    corrected it the same hour: his history is HIM typing, where
+#                    this gate has no jurisdiction whatsoever, and the only
+#                    question a gate rule answers is what the DROID may run. His
+#                    standing rule names pkill, kill and killall as suggestions
+#                    for manual execution only, and says nothing about which
+#                    machine. So it is judged on both sides of an ssh.
 #   process-slaughter, accounts, firewall, mount
 #                    inside a container these act on a namespace that is thrown
 #                    away, and none of them destroys Master's data. A host bind
 #                    mount or `--privileged` is caught by `rule_containers` on the
 #                    runner itself, where it can be named accurately.
-REMOTE_EXEMPT = {"power-state", "process-slaughter"}
+REMOTE_EXEMPT = {"power-state"}
 CONTAINER_EXEMPT = {"power-state", "process-slaughter", "accounts", "firewall",
                     "mount"}
 EXEMPT = {"remote": REMOTE_EXEMPT, "container": CONTAINER_EXEMPT}

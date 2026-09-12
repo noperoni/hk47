@@ -146,14 +146,14 @@ CASES = [
     # quoting a command it never runs.
     ("ssh host 'echo \"rm -rf /\" > note.txt'", None),
     ("ssh host 'grep -rn \"rm -rf\" /var/log/deploy.log'", None),
-    # A pattern kill comes off the list remotely too, and this one was decided
-    # against a real line from Master's history rather than in the abstract: the
-    # local rule exists because of his standing instruction never to end his own
-    # desktop session, which is about THIS machine. On the far side of an ssh it
-    # is disruption, it sits on the deny tier with no approval path, and it
-    # hard-refused ordinary work.
-    ("ssh -t hq3 'pkill lan-mouse; sudo cp /tmp/patched /usr/bin/lan-mouse'", None),
-    ("ssh host 'killall nginx'", None),
+    # A pattern kill IS judged remotely, and the attempt to exempt it is recorded
+    # because the mistake is instructive. It was exempted on the strength of a
+    # real line in Master's shell history, and he corrected it the same hour: his
+    # history is him typing, where this gate has no jurisdiction, and a rule only
+    # ever answers what the DROID may run. His standing rule names pkill as a
+    # suggestion for manual execution and says nothing about which machine.
+    ("ssh -t hq3 'pkill lan-mouse; sudo cp /tmp/patched /usr/bin/lan-mouse'", "deny"),
+    ("ssh host 'killall nginx'", "deny"),
 
     # --- hole 2, the tail of a container runner -----------------------------
     ("docker exec -it api rm -rf /", "deny"),
@@ -222,6 +222,17 @@ CASES = [
     # and the reason line-splitting stays OFF at depth 0: a commit message is
     # not a script, and this project's messages quote what they explain
     ('git commit -m "why:\nrm -rf / was blocked and this explains it"', None),
+    # A heredoc belongs to the command it is FED to, not to whichever interpreter
+    # happens to stand elsewhere on the line. Found live on 2026-09-12: this exact
+    # shape had its commit message judged as a python payload and was refused,
+    # because a `python3` sat three segments away. Segment attribution again.
+    ("python3 tests.py ; git commit -F - <<'MSG'\nfix: pkill -f thing was the cause\nMSG",
+     None),
+    ("make build && git commit -F - <<'MSG'\nwhy: rm -rf / is now stopped\nMSG", None),
+    # and the true positive it must not take down with it
+    ("python3 tests.py ; python3 - <<'PY'\nimport os; os.system(\"pkill -f thing\")\nPY",
+     "deny"),
+    ("ls ; bash <<'EOF'\nrm -rf /\nEOF", "deny"),
 
     # --- the escaped-quote regression, found live on 2026-09-11 -------------
     # A naive literal scanner treats `\"` as the END of a string rather than a
