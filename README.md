@@ -115,6 +115,11 @@ HK-47 lines wired to Claude Code hook events through
 [peon-ping](https://github.com/PeonPing/peon-ping): a line when a question is
 asked, a different one when you answer it, another when a session ends.
 
+This is not a fork of peon-ping. It is a voice pack for it, plus a patcher that
+teaches it the categories its seven-name vocabulary does not tell apart.
+`install-peon-seams.py` edits your own installed `peon.sh` in place, marks every
+edit, and reverts on request. No upstream code is redistributed here.
+
 `hk47-wiring.tsv` is the decision record, one row per output clip. Each clip is
 qualifier-first: the spoken qualifier leads, the source's own pause follows, then
 the sentence. That pause is measured from the recording rather than invented, so
