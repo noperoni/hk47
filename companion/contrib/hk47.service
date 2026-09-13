@@ -1,6 +1,6 @@
 [Unit]
 Description=HK-47 - Pixel-art desktop companion
-Documentation=file:///path/to/hk47/companion/README.md
+Documentation=https://github.com/noperoni/hk47/blob/main/companion/README.md
 PartOf=graphical-session.target
 After=graphical-session.target
 

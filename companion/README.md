@@ -10,8 +10,7 @@ does nothing.
 
 ## Provenance
 
-This is a fork of Alfred (`/path/to/upstream`, Plane project BUDY),
-taken at the point Alfred gained the diorama backdrop and project launcher. It is
+This is a fork of Alfred, a private predecessor project, taken at the point Alfred gained the diorama backdrop and project launcher. It is
 built to run **alongside** Alfred rather than replace him, so every name that
 would otherwise collide has been changed:
 
@@ -213,5 +212,5 @@ so where he opens is a Hyprland window rule against `com.hk47.desktop`: see
 The sprite pack itself is symlinked in from this project rather than copied:
 
 ```sh
-ln -sfn /path/to/hk47/sprites/hk47 ~/.config/hk47/sprites/hk47
+ln -sfn "$(git rev-parse --show-toplevel)/sprites/hk47" ~/.config/hk47/sprites/hk47
 ```

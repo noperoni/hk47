@@ -5,12 +5,15 @@ The point of the exercise is the shadow. The old diorama had none, and a figure
 with no contact shadow reads as pasted onto a picture rather than standing in a
 room no matter how good the perspective behind it is.
 """
+import os
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFilter
 
-ROOM = Path("/path/to/hk47/assets/room-raw/lit_alcove_0.png")
-POSE = Path("/path/to/hk47/assets/anim-raw/idle/00.png")
-TMP = Path("/tmp/hk47")
+ROOT = Path(__file__).resolve().parent.parent
+ROOM = ROOT / "assets/room-raw/lit_alcove_0.png"
+POSE = ROOT / "assets/anim-raw/idle/00.png"
+TMP = Path(os.environ.get("HK47_TMP") or ROOT / "tmp-out")
+TMP.mkdir(parents=True, exist_ok=True)
 
 
 def shadow_for(body: Image.Image, squash: float = 0.16, spread: float = 1.15) -> Image.Image:

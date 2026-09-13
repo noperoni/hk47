@@ -10,14 +10,16 @@ from pathlib import Path
 import requests
 from PIL import Image
 
-sys.path.insert(0, "/path/to/hk47")
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 from importlib.machinery import SourceFileLoader
-bhs = SourceFileLoader("bhs", "/path/to/hk47/build-hk47-sprites.py").load_module()
+bhs = SourceFileLoader("bhs", str(ROOT / "build-hk47-sprites.py")).load_module()
 
 API = "https://api.pixellab.ai/v2"
 T = os.popen("fish -c 'echo $PIXELLAB_API_KEY'").read().strip()
 H = {"Authorization": f"Bearer {T}", "Content-Type": "application/json"}
-TMP = Path("/tmp/hk47")
+TMP = Path(os.environ.get("HK47_TMP") or ROOT / "tmp-out")
+TMP.mkdir(parents=True, exist_ok=True)
 OUT = TMP / "chars"
 ORDER = ["south", "south-west", "west", "north-west", "north", "north-east", "east", "south-east"]
 
@@ -50,13 +52,13 @@ def build_reference(w=96, h=128) -> Image.Image:
     passes the south rotation through nearly untouched, so a photographic
     reference yields a photographic south view sitting next to seven generated
     pixel-art ones. Quantizing and outlining first, through the very pipeline
-    that produced the pack hk47 approved, keeps all eight in the same idiom.
+    that produced the approved pack, keeps all eight in the same idiom.
 
     LOGICAL_H is raised from the pack's 88 only for this reference: at 88 the
     figure is 33px wide and the model has nothing to read.
     """
     bhs.LOGICAL_H = h - 6
-    src = Image.open("/path/to/hk47/assets/hk47-reference.png")
+    src = Image.open(ROOT / "assets/hk47-reference.png")
     sprite, eyes = bhs.build_sprite(src)
     bhs.paint_eyes(sprite, eyes, 1.0)
     canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))

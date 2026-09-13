@@ -7,5 +7,10 @@ __pycache__/
 # source corpus, which lives outside this repo and is referenced by resref.
 audition/
 
-# Session state, still being written by a parallel session on another task.
-.claude/state.json
+# Local session state and tracker wiring. PROJECT.json names a private Plane
+# instance and its project UUIDs, and state.json is a running log of one
+# machine's work: neither belongs in a public clone.
+.claude/
+
+# Local scratch that some helper scripts write next to the repo.
+/tmp-out/

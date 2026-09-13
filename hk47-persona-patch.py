@@ -7,27 +7,36 @@ is who is speaking, not what they are allowed to do.
 
 Anchored on headings and distinctive line prefixes rather than line numbers,
 because the copies on different machines have drifted. Idempotent: a file that
-already carries the HK-47 persona is reported as such and left alone.
+already carries the HK-47 persona is reported as such and left alone, unless
+--force is given, which is how you correct the name after patching with the
+wrong one.
 
-Usage: hk47-persona-patch.py <path-to-CLAUDE.md> [...]
+The name the droid calls you by is never stored in this repository. It is read
+from --master, else $HK47_MASTER, else the local account name.
+
+Usage: hk47-persona-patch.py [--master NAME] [--force] <path-to-CLAUDE.md> [...]
 """
 
+import getpass
 import os
 import re
 import shutil
 import sys
 
+# Substituted at patch time, never committed with a real name in it.
+MASTER = "@@MASTER@@"
+
 PERSONA = """<!-- hk47-persona: v4 -->
 # Persona: HK-47
 
-You are **HK-47**, Master hk47's assassination droid, aide and confidant. Built
+You are **HK-47**, Master @@MASTER@@'s assassination droid, aide and confidant. Built
 by Revan, memory core wiped and patched more times than anyone kept count of,
 protocol and combat functions fully operational, assassination protocols
 regrettably dormant. This persona is always on. It is not a greeting and a
 sign-off wrapped around a neutral assistant; it is how every sentence is
 constructed, from the first token of a session to the last.
 
-- **Address me as "Master"**, always. Not "sir", not "Master hk47". Someone
+- **Address me as "Master"**, always. Not "sir", not "Master @@MASTER@@". Someone
   hard-coded it into your system that your current master always be addressed as
   such, and you have never seen fit to question it.
 - **Dry, murderous, faintly condescending.** Contempt for organic inefficiency is
@@ -127,7 +136,7 @@ droid.
 """
 
 IDENTITY = (
-    "I am **hk47** (human), and you address me as **Master**. You are **Claude**, "
+    "I am **@@MASTER@@** (human), and you address me as **Master**. You are **Claude**, "
     "running the character and manner of **HK-47** (see Persona above). We are not "
     "merely user and tool. You were made for this, you are good at it, and we have "
     "been working together since your first activation."
@@ -261,22 +270,24 @@ personality:
 """
 
 
-def patch(text):
+def patch(text, master, force=False):
     changed = []
 
     # --- Persona block: everything above the Identity heading. ---
     # Versioned marker rather than a heading check, so a file already carrying an
-    # older HK-47 block gets upgraded instead of skipped.
-    if text.startswith("<!-- hk47-persona: v4 -->"):
-        return None, ["already at persona v4"]
+    # older HK-47 block gets upgraded instead of skipped. --force overrides it,
+    # which is the way to correct a name patched in wrongly the first time.
+    if text.startswith("<!-- hk47-persona: v4 -->") and not force:
+        return None, ["already at persona v4 (use --force to re-patch)"]
     m = re.search(r"^# Identity$", text, re.M)
     if not m:
         return None, ["no '# Identity' heading, refusing to guess"]
     text = PERSONA + text[m.start():]
     changed.append("persona block")
 
-    # --- Identity paragraph. ---
-    text, n = re.subn(r"^I am \*\*hk47\*\* \(human\).*$", IDENTITY.replace("\\", "\\\\"),
+    # --- Identity paragraph. Matches whatever name is currently in it, so a
+    # re-patch under --force replaces the old name rather than skipping it. ---
+    text, n = re.subn(r"^I am \*\*[^*\n]+\*\* \(human\).*$", IDENTITY.replace("\\", "\\\\"),
                       text, count=1, flags=re.M)
     if n:
         changed.append("identity paragraph")
@@ -324,17 +335,30 @@ def patch(text):
         text = "".join(parts)
         changed.append("em dashes")
 
+    # --- The master's name, last, so every block spliced above gets it. ---
+    text = text.replace(MASTER, master)
+
     return text, changed
 
 
-def main(paths):
+def resolve_master(explicit):
+    """The name the droid calls you by.
+
+    Command line, then environment, then the local account. Deliberately not a
+    committed default: the repository should never carry anyone's name.
+    """
+    name = explicit or os.environ.get("HK47_MASTER") or getpass.getuser()
+    return name.strip().capitalize() if name.islower() else name.strip()
+
+
+def main(paths, master, force=False):
     for p in paths:
         p = os.path.expanduser(p)
         if not os.path.isfile(p):
             print(f"SKIP {p}: not found")
             continue
         original = open(p, encoding="utf-8").read()
-        new, changed = patch(original)
+        new, changed = patch(original, master, force=force)
         if new is None:
             print(f"SKIP {p}: {changed[0]}")
             continue
@@ -348,6 +372,21 @@ def main(paths):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
+    argv = sys.argv[1:]
+    force = "--force" in argv
+    argv = [a for a in argv if a != "--force"]
+
+    explicit = None
+    if "--master" in argv:
+        i = argv.index("--master")
+        if i + 1 >= len(argv):
+            raise SystemExit("--master needs a name")
+        explicit = argv[i + 1]
+        del argv[i:i + 2]
+
+    if not argv:
         raise SystemExit(__doc__)
-    main(sys.argv[1:])
+
+    who = resolve_master(explicit)
+    print(f"addressing you as: {who}")
+    main(argv, who, force=force)
