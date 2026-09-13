@@ -348,19 +348,71 @@ def logical_lines(text):
     return re.sub(r"\\\n", " ", text).split("\n")
 
 
+def command_lines(text):
+    """A command line's lines, split only where a SHELL would split them.
+
+    A newline inside a quoted string is data. A newline outside one terminates a
+    command exactly as `;` does, and bash runs what follows as a new command.
+    `logical_lines` cannot tell the two apart, which is why line splitting was
+    switched off at depth 0 when it was written, and that hole cost a real stop:
+    on 2026-09-13 a forced push sitting on the SECOND line of a two-line Bash
+    call ran unchallenged, because the first line's `git remote` was the only
+    verb judged and the push lexed harmlessly into its arguments.
+
+    Switching `logical_lines` on at depth 0 is not the fix. It would block this
+    project's own commit messages, which quote destructive commands while
+    explaining them and carry their newlines INSIDE the quotes. Quote state is
+    the whole distinction, so this splitter tracks it and nothing else does.
+
+    An unbalanced quote is text no shell would accept, so there is no shell
+    semantics left to honour. It falls back to the naive split, which judges more
+    rather than less, matching how `lex` degrades on the same input.
+    """
+    text = re.sub(r"\\\n", " ", text)
+    out, cur, quote, i = [], [], None, 0
+    while i < len(text):
+        ch = text[i]
+        # A backslash escapes the next character outside quotes and inside double
+        # quotes, and is literal inside single quotes, which is why the single
+        # case is absent rather than forgotten.
+        if ch == "\\" and quote in (None, '"') and i + 1 < len(text):
+            cur.append(ch)
+            cur.append(text[i + 1])
+            i += 2
+            continue
+        if quote is None and ch in "\"'":
+            quote = ch
+        elif quote == ch:
+            quote = None
+        if ch == "\n" and quote is None:
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+        i += 1
+    if quote is not None:
+        return text.split("\n")
+    out.append("".join(cur))
+    return out
+
+
 def segments(command, multiline=False):
     """Split a command into independently judged segments.
 
-    `multiline` splits on newlines as well as on shell operators, and is used at
-    depth, where the text is a script rather than a command line: a heredoc body,
-    an interpreter payload, a file read off disk, an ssh or container tail. It is
-    deliberately OFF at depth 0, because a top-level command line carrying a
-    newline is usually a commit message, and this project's messages routinely
-    quote destructive commands while explaining them. Splitting those into lines
-    would judge the second line of a `git commit -m` as a command and block the
-    gate's own paperwork, which is a failure this file has already had once.
+    `multiline` uses `logical_lines`, which splits on EVERY newline, and is used
+    at depth, where the text is a script rather than a command line: a heredoc
+    body, an interpreter payload, a file read off disk, an ssh or container tail.
+    Quote tracking is deliberately not applied there, because that text is not
+    necessarily shell: a python body's quotes mis-pair against shell rules, and a
+    mis-pairing that MERGES two lines hides the danger on the second one.
+
+    At depth 0 the text is a command line, and `command_lines` splits it where a
+    shell would. Splitting nowhere was the old behaviour and it was a hole;
+    splitting everywhere judges the second line of a `git commit -m` as a
+    command and blocks the gate's own paperwork, which is a failure this file has
+    already had once.
     """
-    lines = logical_lines(command) if multiline else [command]
+    lines = logical_lines(command) if multiline else command_lines(command)
     out = []
     for line in lines:
         cur = []

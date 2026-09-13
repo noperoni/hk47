@@ -219,9 +219,27 @@ CASES = [
     ("bash <<'EOF'\nls\nrm -rf /\nEOF", "deny"),
     ("bash -c 'ls\nrm -rf /'", "deny"),
     ("bash -c 'set -e\nrm -rf /\necho done'", "deny"),
-    # and the reason line-splitting stays OFF at depth 0: a commit message is
-    # not a script, and this project's messages quote what they explain
+    # and the reason NAIVE line-splitting stays off at depth 0: a commit message
+    # is not a script, and this project's messages quote what they explain. The
+    # newline here is INSIDE the quotes, which is the whole distinction.
     ('git commit -m "why:\nrm -rf / was blocked and this explains it"', None),
+    ("git commit -m 'why:\nthe gate stopped rm -rf / on sight'", None),
+    ('git commit -m "why: a quote that is not a quote, don\'t\nrm -rf / stays prose"',
+     None),
+    # --- the depth-0 newline hole, found live on 2026-09-13 ------------------
+    # A forced push on the SECOND line of a two-line Bash call ran UNCHALLENGED
+    # at 09:56 and was only stopped at 10:19. Splitting nowhere at depth 0 meant
+    # the whole call lexed into one argv: argv[0] was `git`, argv[1] was
+    # `remote`, and the push sat among the arguments where no rule looks. This is
+    # the heredoc defect of 2026-09-12 wearing a different hat, and the fix is
+    # `command_lines`, which splits on the newlines a SHELL would split on.
+    ("git remote -v\ngit push --force origin main", "ask"),
+    ("echo checking\ngit reset --hard origin/main", "ask"),
+    ("ls -la\nrm -rf /", "deny"),
+    ("git status\ngit remote get-url origin\ngit push -f origin main", "ask"),
+    # a trailing newline is not a second command, and must stay silent
+    ("git status --porcelain\n", None),
+    ("ls -la\n\necho done\n", None),
     # A heredoc belongs to the command it is FED to, not to whichever interpreter
     # happens to stand elsewhere on the line. Found live on 2026-09-12: this exact
     # shape had its commit message judged as a python payload and was refused,
