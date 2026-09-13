@@ -31,7 +31,8 @@ import subprocess
 import sys
 import tempfile
 
-KOTOR = os.environ.get("KOTOR_DIR", "~/.steam/steam/steamapps/common/swkotor")
+KOTOR = os.environ.get("KOTOR_DIR") or os.path.expanduser(
+    "~/.steam/steam/steamapps/common/swkotor")
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PAUSE = 0.45
 JOIN_TOLERANCE = 0.15  # a span end this close to a silence start counts as that pause
