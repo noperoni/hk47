@@ -1,3 +1,7 @@
+# NOTICE: the text column is dialogue from Star Wars: Knights of the Old
+# Republic, which is the property of BioWare and Lucasfilm. It is recorded
+# here as metadata so the tooling can locate and cut audio you already own.
+# No audio ships with this repository and none ever should.
 # resref	seconds	text  (291 HK-47 clips, durations measured)
 nglobehhkd07556_	4.58	Statement: Well done, master. You're my kind of owner!
 nglobehhkd07558_	4.5	Statement: Oh, master. I'm so very disappointed in you.
