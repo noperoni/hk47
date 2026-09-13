@@ -1,0 +1,353 @@
+/* HK-47 site styling.
+   The palette is not invented. Every colour below was measured out of the
+   companion's own diorama screenshot, which is the same rule the sprite pack
+   uses to pick its frame accent: if the answer is already in the art, take it
+   from the art. */
+
+:root {
+  --ground:      #12100f;   /* deeper than the corridor's darkest pixel */
+  --ground-2:    #161414;   /* the corridor's darkest pixel, 21% of the frame */
+  --panel:       #1a1715;
+  --steel:       #222832;   /* bulkhead ribs */
+  --steel-lit:   #404a58;
+  --hair:        #302620;   /* SHIP_ACCENT_DK, the frame's two edge pixels */
+  --accent:      #604e40;   /* SHIP_ACCENT, the frame line itself */
+  --rust-dk:     #4a2c1e;
+  --rust:        #8c5230;
+  --rust-lit:    #b06a3e;   /* his brightest plating */
+  --eye:         #ce3028;   /* the eight photoreceptor pixels */
+  --amber:       #e29e2c;   /* permission console */
+  --cyan:        #60c4be;   /* waiting console */
+  --ink:         #d8cfc6;
+  --ink-dim:     #9a9089;
+  --ink-faint:   #6d655f;
+
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+
+  --wide: 1180px;
+}
+
+* { box-sizing: border-box; }
+
+/* Same min-width:auto trap as the command rows, for every track that can hold
+   a wide code block, table or image. */
+.cards > *, .gatecols > *, .twocol > *, .steps > *, .foot-grid > *,
+.hero > *, .transcript > *, .cmds, .cmd { min-width: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at 70% -10%, #1d1917 0%, transparent 60%),
+    var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--rust-lit); text-decoration-color: var(--rust-dk); text-underline-offset: 3px; }
+a:hover { color: var(--amber); }
+
+code, pre { font-family: var(--mono); }
+
+code {
+  font-size: 0.88em;
+  background: #00000055;
+  border: 1px solid var(--hair);
+  padding: 0.08em 0.36em;
+  color: var(--ink);
+}
+
+pre {
+  background: #00000066;
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--accent);
+  padding: 0.9rem 1.1rem;
+  overflow-x: auto;
+  font-size: 0.86rem;
+  line-height: 1.6;
+}
+pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+
+/* ── top bar ─────────────────────────────────────────────── */
+
+.bar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem clamp(1rem, 4vw, 2.5rem);
+  background: #0f0d0ce6;
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--hair);
+}
+
+.brand {
+  display: flex; align-items: center; gap: 0.55rem;
+  font-family: var(--mono); font-weight: 700; letter-spacing: 0.12em;
+  color: var(--ink); text-decoration: none; font-size: 0.95rem;
+}
+.brand img { display: block; }
+.brand span { white-space: nowrap; }
+
+.bar nav { display: flex; gap: clamp(0.6rem, 2vw, 1.5rem); flex-wrap: wrap; }
+.bar nav a {
+  font-family: var(--mono); font-size: 0.8rem; letter-spacing: 0.06em;
+  color: var(--ink-dim); text-decoration: none;
+}
+.bar nav a:hover { color: var(--rust-lit); }
+.bar nav a.ext::after { content: " \2197"; font-size: 0.85em; }
+
+/* ── hero ─────────────────────────────────────────────────── */
+
+.hero {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: clamp(2.5rem, 7vw, 5.5rem) clamp(1rem, 4vw, 2.5rem) clamp(2rem, 5vw, 4rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+  align-items: center;
+}
+
+.eyebrow {
+  font-family: var(--mono); font-size: 0.76rem; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--rust); margin: 0 0 1rem;
+}
+
+h1 {
+  font-size: clamp(1.9rem, 4.4vw, 3.1rem);
+  line-height: 1.14;
+  letter-spacing: -0.015em;
+  margin: 0 0 1.1rem;
+  font-weight: 700;
+  color: #efe7de;
+}
+
+.lede { font-size: 1.05rem; color: var(--ink-dim); margin: 0 0 1.8rem; max-width: 54ch; }
+
+.fineprint {
+  font-family: var(--mono); font-size: 0.76rem; color: var(--ink-faint);
+  margin-top: 1rem;
+}
+
+/* copyable command rows */
+
+.cmds { display: grid; gap: 0.5rem; }
+
+.cmd {
+  display: flex; align-items: center; gap: 0.75rem;
+  background: #00000066;
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--rust-dk);
+  padding: 0.6rem 0.6rem 0.6rem 0.9rem;
+}
+.cmd code {
+  background: none; border: 0; padding: 0;
+  font-size: 0.82rem; color: var(--ink);
+  overflow-x: auto; white-space: pre; flex: 1;
+  /* Without this the unbreakable command refuses to shrink below its own
+     width and drags the whole page wider than a phone viewport. */
+  min-width: 0;
+}
+.cmd::before {
+  content: "$"; color: var(--rust); font-family: var(--mono);
+  font-size: 0.82rem; flex: none;
+}
+.copy {
+  flex: none;
+  font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 1px solid var(--hair);
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+.copy:hover { color: var(--rust-lit); border-color: var(--accent); }
+.copy.done { color: var(--cyan); border-color: var(--cyan); }
+
+/* hero screenshot */
+
+.hero-shot { margin: 0; }
+.hero-shot img,
+.px {
+  width: 100%; height: auto; display: block;
+  image-rendering: pixelated;
+  border: 1px solid var(--accent);
+  box-shadow: 0 18px 50px #000000aa;
+}
+figcaption {
+  font-family: var(--mono); font-size: 0.72rem; color: var(--ink-faint);
+  margin-top: 0.6rem; text-align: center;
+}
+
+/* ── generic band ─────────────────────────────────────────── */
+
+/* The measure is held by the band's own padding rather than by centring each
+   child, so a full-width heading and a 68ch paragraph share one left edge.
+   Centring children individually is what put every h2 seventy pixels right of
+   the prose beneath it. */
+.band {
+  padding-block: clamp(2.5rem, 6vw, 4.5rem);
+  padding-inline: max(clamp(1rem, 4vw, 2.5rem), calc((100% - var(--wide)) / 2));
+  border-top: 1px solid var(--hair);
+}
+.band.alt { background: #00000040; }
+
+h2 {
+  font-size: clamp(1.35rem, 2.6vw, 1.95rem);
+  line-height: 1.2; margin: 0 0 0.9rem; color: #efe7de; font-weight: 700;
+}
+h3 {
+  font-size: 1rem; margin: 1.6rem 0 0.5rem; color: var(--rust-lit);
+  font-family: var(--mono); letter-spacing: 0.03em;
+}
+.section-lede { color: var(--ink-dim); max-width: 68ch; margin: 0 0 2rem; }
+
+/* ── voice comparison ─────────────────────────────────────── */
+
+.toggle { display: inline-flex; border: 1px solid var(--hair); margin-bottom: 1.5rem; }
+.tog {
+  font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.06em;
+  padding: 0.45rem 0.95rem;
+  background: transparent; color: var(--ink-faint);
+  border: 0; cursor: pointer;
+}
+.tog + .tog { border-left: 1px solid var(--hair); }
+.tog.is-on { background: var(--rust-dk); color: #f4e9df; }
+
+/* Left-flush with every other section. .band > * centres anything narrower
+   than the band, which is right for the band itself and wrong for this. */
+.transcript { display: grid; gap: 1rem; max-width: 82ch; margin-left: 0; }
+.turn {
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--steel-lit);
+  background: #00000044;
+  padding: 0.9rem 1.1rem;
+}
+.you {
+  font-family: var(--mono); font-size: 0.78rem; color: var(--ink-faint);
+  margin: 0 0 0.55rem;
+}
+.you::before {
+  content: "you";
+  color: var(--steel-lit);
+  letter-spacing: 0.16em; text-transform: uppercase; font-size: 0.9em;
+  margin-right: 0.9em;
+}
+.say {
+  margin: 0; white-space: pre-line;
+  font-family: var(--mono); font-size: 0.86rem; line-height: 1.7;
+  color: var(--ink);
+}
+.transcript.is-hk47 .turn { border-left-color: var(--rust); }
+.transcript.is-plain .say { color: var(--ink-dim); font-family: var(--sans); font-size: 0.95rem; }
+
+/* ── cards ────────────────────────────────────────────────── */
+
+.cards {
+  display: grid; gap: 1rem;
+  /* 300px min gives three columns inside the 1180px band, so five cards land
+     as 3 + 2 rather than 4 + a lonely one. */
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+.card {
+  border: 1px solid var(--hair);
+  background: linear-gradient(#1b1816, #151312);
+  padding: 1.2rem 1.3rem 1.3rem;
+}
+.card.accent { border-color: var(--rust-dk); }
+.card h3 { margin: 0 0 0.6rem; display: flex; align-items: baseline; gap: 0.6rem; }
+.tick {
+  font-size: 0.72rem; color: var(--ink-faint); letter-spacing: 0.14em;
+}
+.card p { margin: 0 0 0.7rem; font-size: 0.93rem; color: var(--ink-dim); }
+.need {
+  font-family: var(--mono); font-size: 0.72rem; color: var(--ink-faint);
+  border-top: 1px solid var(--hair); padding-top: 0.6rem; margin: 0 !important;
+}
+
+/* ── danger gate ──────────────────────────────────────────── */
+
+.gatecols {
+  display: grid; gap: clamp(1.5rem, 4vw, 3rem);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+.gatecols h3:first-child { margin-top: 0; }
+.gatecols p { font-size: 0.95rem; color: var(--ink-dim); }
+
+.matrix { overflow-x: auto; margin: 0.8rem 0 1.2rem; }
+.matrix table { border-collapse: collapse; width: 100%; font-size: 0.82rem; }
+.matrix th, .matrix td {
+  border: 1px solid var(--hair); padding: 0.5rem 0.7rem;
+  text-align: left; vertical-align: top;
+}
+.matrix th {
+  font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--eye); background: #00000055;
+  font-weight: 600;
+}
+.matrix td { color: var(--ink-dim); }
+
+pre .ok { color: var(--cyan); }
+pre .no { color: var(--eye); }
+pre .c  { color: var(--ink-faint); }
+pre .k  { color: var(--amber); }
+
+/* ── two column + image pair ──────────────────────────────── */
+
+.twocol {
+  display: grid; gap: clamp(1.5rem, 4vw, 3rem);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
+}
+.twocol p { color: var(--ink-dim); font-size: 0.95rem; }
+.pair { margin: 0; display: grid; gap: 0.7rem; }
+
+.wiring { margin: 0 0 1.5rem; }
+
+/* ── install steps ────────────────────────────────────────── */
+
+.steps {
+  display: grid; gap: 1.6rem 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+}
+.step h3 { margin-top: 0; }
+.step p { font-size: 0.9rem; color: var(--ink-dim); margin: 0.7rem 0 0; }
+
+/* ── footer ───────────────────────────────────────────────── */
+
+footer {
+  border-top: 1px solid var(--hair);
+  background: #0d0b0a;
+  padding: clamp(2rem, 5vw, 3.5rem) clamp(1rem, 4vw, 2.5rem) 2rem;
+}
+.foot-grid {
+  max-width: var(--wide); margin: 0 auto;
+  display: grid; gap: 1.5rem 3rem;
+  grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
+}
+.foot-grid p { font-size: 0.86rem; color: var(--ink-faint); margin: 0 0 0.6rem; }
+.qual { font-family: var(--mono); font-size: 0.8rem !important; color: var(--ink-dim) !important; }
+.foot-grid a.ext { font-family: var(--mono); font-size: 0.82rem; }
+
+.signoff {
+  max-width: var(--wide); margin: 2.5rem auto 0;
+  font-family: var(--mono); font-size: 0.78rem; color: var(--rust-dk);
+  text-align: center; letter-spacing: 0.04em;
+}
+
+/* ── narrow ───────────────────────────────────────────────── */
+
+@media (max-width: 860px) {
+  .hero { grid-template-columns: 1fr; }
+  .foot-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}

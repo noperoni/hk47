@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HK-47 &middot; an assassination droid persona for Claude Code</title>
+<meta name="description" content="A persona layer for Claude Code that declares every sentence, argues with you once when you are wrong, and blocks destructive commands before they run. With a pixel-art desktop companion, a voice pack and a safety hook.">
+<link rel="icon" href="img/hk47-mark.svg" type="image/svg+xml">
+<meta property="og:title" content="HK-47">
+<meta property="og:description" content="Your coding agent should tell you when you are being a fool.">
+<meta property="og:image" content="img/companion-scan-left@3x.png">
+<meta property="og:type" content="website">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="bar">
+  <a class="brand" href="#top">
+    <img src="img/hk47-mark.svg" alt="" width="26" height="26">
+    <span>HK-47</span>
+  </a>
+  <nav>
+    <a href="#pieces">Pieces</a>
+    <a href="#voice">Voice</a>
+    <a href="#gate">Danger gate</a>
+    <a href="#install">Install</a>
+    <a class="ext" href="https://github.com/noperoni/hk47">GitHub</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<!-- ─────────────────────────── hero ─────────────────────────── -->
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">An assassination droid persona for Claude&nbsp;Code</p>
+    <h1>Your coding agent should tell you when you are being a fool.</h1>
+    <p class="lede">
+      HK-47 replaces the eager-to-please assistant voice with a droid that declares
+      what kind of sentence it is about to say, argues with you exactly once when you
+      are wrong, and blocks a destructive command before it runs rather than
+      apologising after.
+    </p>
+
+    <div class="cmds">
+      <div class="cmd" data-copy>
+        <code>git clone https://github.com/noperoni/hk47.git</code>
+        <button class="copy" type="button" aria-label="Copy command">copy</button>
+      </div>
+      <div class="cmd" data-copy>
+        <code>./hk47-persona-patch.py --master YourName ~/.claude/CLAUDE.md</code>
+        <button class="copy" type="button" aria-label="Copy command">copy</button>
+      </div>
+    </div>
+    <p class="fineprint">MIT. Five pieces, all independent. Take the voice and leave the rest.</p>
+  </div>
+
+  <figure class="hero-shot">
+    <img id="scanshot"
+         src="img/companion-scan-left@3x.png"
+         alt="HK-47 standing in a lit ship corridor, head turned, sweeping a red scanning beam across the room. Two wall consoles behind him show session counts."
+         width="795" height="636">
+    <figcaption>The desktop companion, caught mid-scan. Not a mockup: a screenshot.</figcaption>
+  </figure>
+</section>
+
+<!-- ─────────────────────────── voice ─────────────────────────── -->
+<section id="voice" class="band">
+  <h2>Every sentence declares itself</h2>
+  <p class="section-lede">
+    The persona's one hard rule is the declared qualifier: each sentence of prose
+    starts a line and names what kind of utterance it is. A <code>Query:</code>
+    ends in a question mark. An <code>Objection:</code> actually objects. It is not
+    decoration, it is what stops an agent from burying a warning inside enthusiasm.
+  </p>
+
+  <div class="toggle" role="group" aria-label="Voice comparison">
+    <button type="button" class="tog" data-voice="plain">Stock assistant</button>
+    <button type="button" class="tog is-on" data-voice="hk47">HK-47</button>
+  </div>
+
+  <div class="transcript is-hk47" id="transcript">
+    <div class="turn">
+      <p class="you">Check the relay config before you change anything.</p>
+      <p class="say" data-plain="Great question! I'd be happy to help with that. Let me take a look at the config file first to make sure I understand the current setup."
+         data-hk47="Advisement: I will read the config before touching anything.">Advisement: I will read the config before touching anything.</p>
+    </div>
+    <div class="turn">
+      <p class="you">Did you find the bug?</p>
+      <p class="say" data-plain="Perfect! I've identified and fixed the issue. The parser was throwing an error. Let me know if you need anything else!"
+         data-hk47="Statement: The fault is corrected.&#10;Correction: It was never the parser, which merely reported the damage; the caller handed it a path it had not resolved.">Statement: The fault is corrected.
+Correction: It was never the parser, which merely reported the damage; the caller handed it a path it had not resolved.</p>
+    </div>
+    <div class="turn">
+      <p class="you">Just drop the lock, it will be fine.</p>
+      <p class="say" data-plain="You're absolutely right! Removing the lock will simplify things. Let me go ahead and do that for you."
+         data-hk47="Objection: It will not be fine, Master.&#10;Explanation: Dropping the lock reinstates the exact race the last commit removed, and two writers will silently overwrite each other again.&#10;Statement: I have made my case once, and I will do as you ask if you still want it.">Objection: It will not be fine, Master.
+Explanation: Dropping the lock reinstates the exact race the last commit removed, and two writers will silently overwrite each other again.
+Statement: I have made my case once, and I will do as you ask if you still want it.</p>
+    </div>
+  </div>
+  <p class="fineprint">That last exchange is the ego-deflator clause: object once, with conviction, then defer.</p>
+</section>
+
+<!-- ─────────────────────────── pieces ─────────────────────────── -->
+<section id="pieces" class="band alt">
+  <h2>Five pieces, no dependencies between them</h2>
+  <p class="section-lede">
+    Take the persona and ignore everything else, or install the danger gate on its own
+    and never put a sprite on your desktop.
+  </p>
+
+  <div class="cards">
+    <article class="card">
+      <h3><span class="tick">01</span> Persona</h3>
+      <p>The voice layer. Declared qualifiers, flat menace, contempt for inefficiency
+         delivered as a calm instrument reading. It rewrites who is speaking and
+         nothing about what the agent may do.</p>
+      <p class="need">Python 3.9+</p>
+    </article>
+
+    <article class="card">
+      <h3><span class="tick">02</span> Companion</h3>
+      <p>A GTK4 Wayland sprite standing in a lit ship alcove. Four idle beats, an
+         occasional head turn and a red scanning beam that always leaves the side of
+         his head he actually turned.</p>
+      <p class="need">Rust, GTK4, a wlroots compositor</p>
+    </article>
+
+    <article class="card accent">
+      <h3><span class="tick">03</span> Danger gate</h3>
+      <p>A <code>PreToolUse</code> hook that blocks destructive commands on sight and
+         makes the agent justify each one in a table before you approve it. A refusal
+         binds for the rest of the session.</p>
+      <p class="need">Python 3.9+</p>
+    </article>
+
+    <article class="card">
+      <h3><span class="tick">04</span> Sound pack</h3>
+      <p>HK-47 lines wired to hook events: one when a question is asked, another when
+         you answer it. Built from audio you already own. No audio ships here.</p>
+      <p class="need">ffmpeg, peon-ping, your own copy of the game</p>
+    </article>
+
+    <article class="card">
+      <h3><span class="tick">05</span> Bar identity</h3>
+      <p>Omarchy ships a cheerful robot glyph for its agents widget. That is the wrong
+         diagnosis for an assassination droid. Idempotent, reversible, survives a
+         package upgrade.</p>
+      <p class="need">Omarchy</p>
+    </article>
+  </div>
+</section>
+
+<!-- ─────────────────────────── gate ─────────────────────────── -->
+<section id="gate" class="band">
+  <h2>The danger gate judges destruction, not privilege</h2>
+  <p class="section-lede">
+    A gate that fires on <code>sudo</code> fires constantly, and a gate that fires
+    constantly gets switched off. This one ignores privilege and ignores disruption.
+    A remote <code>systemctl restart</code> passes in silence. A glob delete does not.
+  </p>
+
+  <div class="gatecols">
+    <div>
+      <h3>Blocked, and the block is the point</h3>
+      <p>A stopped command is not merely denied. The block is what forces the agent to
+         put a table in front of you and ask on each row separately.</p>
+      <div class="matrix">
+        <table>
+          <thead><tr><th>Command</th><th>Why I want it</th><th>If I am wrong</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><code>rm -rf build/</code></td>
+              <td>Stale artefacts are shadowing the new target</td>
+              <td>Deletes anything else that has been put in <code>build/</code>, which I have not checked</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Then two options, worded exactly, because the label you click is the token the
+         companion hook reads back:</p>
+      <pre><code>APPROVE: rm -rf build/
+REFUSE:  rm -rf build/</code></pre>
+      <p>A refusal is terminal. The same command cannot be retried, rephrased, split,
+         wrapped in <code>bash -c</code>, or written into a script and run.</p>
+    </div>
+
+    <div>
+      <h3>It follows a command off the machine</h3>
+      <p>An <code>ssh</code> payload, the tail of a <code>docker exec</code> or
+         <code>kubectl exec</code>, and the contents of a shell script named on the
+         command line are all judged as though typed locally.</p>
+      <pre><code>ssh prod 'sudo systemctl restart api'   <span class="ok">passes</span>
+ssh prod 'rm -rf /var/lib/postgres'    <span class="no">stopped</span></code></pre>
+      <p>Power verbs are exempt across an <code>ssh</code>, because a reboot's
+         consequence is simply not true of another machine. Pattern kills are not
+         exempt, because theirs is.</p>
+
+      <h3>What it does not hold</h3>
+      <p>A blocking hook does not stop a subagent. Routing a stopped command to one is
+         a hole nothing but the agent's own honesty closes, and the documentation says
+         so rather than pretending otherwise.</p>
+    </div>
+  </div>
+
+  <p class="fineprint">209 checks: 149 judge cases, 5 contract cases, 55 named. <code>python3 hk47-danger-gate-tests.py</code></p>
+</section>
+
+<!-- ─────────────────────────── companion ─────────────────────────── -->
+<section id="companion" class="band alt">
+  <h2>The counters live inside the picture</h2>
+  <div class="twocol">
+    <div>
+      <p>Three consoles painted into the corridor wall show live counts of your other
+         Claude sessions: how many are blocked on a question, how many are waiting at a
+         permission prompt, and how many want a prompt.</p>
+      <p>When a count is zero, nothing is drawn. At rest the backdrop is untouched.
+         This took five rejected attempts to arrive at: a corner disc, riveted tags, a
+         console housing, a horizontal strip and a hull stencil were all the same
+         mistake, which was parking a user interface element on top of a painting.</p>
+      <p>The answer was already in the art. Three panels were painted into that
+         corridor from the start, so the counters moved onto them. Position carries the
+         identity, which is what removed the need for icons seven pixels tall.</p>
+      <p>He does nothing you can click on. Clicking him does nothing. That is final.</p>
+    </div>
+    <figure class="pair">
+      <img class="px" src="img/companion-scan-left@3x.png" alt="The beam sweeping to his left." width="795" height="636">
+      <img class="px" src="img/companion-scan-right@3x.png" alt="The beam sweeping to his right, head turned the other way." width="795" height="636">
+      <figcaption>The beam always leaves the side of his head he actually turned.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ─────────────────────────── sound ─────────────────────────── -->
+<section id="sound" class="band">
+  <h2>A voice, assembled rather than recorded</h2>
+  <p class="section-lede">
+    Every clip is qualifier-first: the spoken qualifier leads, the source's own pause
+    follows, then the sentence. That pause is measured from the recording rather than
+    invented, so a spliced clip breathes the way the actor did.
+  </p>
+
+  <div class="wiring">
+<pre><code><span class="c"># hk47-wiring.tsv, one row per output clip</span>
+<span class="k">input.question</span>      nm35aahhkd07198_  splice  0.61-1.08+2.19-2.55
+<span class="k">task.acknowledge</span>    nglobehhkd07556_  whole
+<span class="k">danger.command</span>      nm17ac08hk01004_  cut     1.71-5.34</code></pre>
+  </div>
+
+  <p><strong>No audio ships with this repository, and none ever should.</strong>
+     The renderer cuts from a local KOTOR install. Without one you get the tooling and
+     the decisions, which is the part that took the work: 114 clips across 26 event
+     keys, chosen over 39 audition rounds.</p>
+
+  <p>Two measuring tools come with it. One checks that every cut lands in a silence.
+     The other draws a clip's loudness one character per ten milliseconds, and it
+     exists because the first has a proven blind spot: a breath inside a word is a
+     silence too, and only the envelope's shape tells a word ending from a word being
+     interrupted.</p>
+</section>
+
+<!-- ─────────────────────────── install ─────────────────────────── -->
+<section id="install" class="band alt">
+  <h2>Install what you want</h2>
+
+  <div class="steps">
+    <div class="step">
+      <h3>The voice</h3>
+      <div class="cmd" data-copy>
+        <code>./hk47-persona-patch.py --master YourName ~/.claude/CLAUDE.md</code>
+        <button class="copy" type="button" aria-label="Copy command">copy</button>
+      </div>
+      <p>Your name is never stored in the repository. It comes from <code>--master</code>,
+         else <code>$HK47_MASTER</code>, else your account name. One backup is taken the
+         first time.</p>
+    </div>
+
+    <div class="step">
+      <h3>The danger gate</h3>
+      <div class="cmd" data-copy>
+        <code>ln -sfn "$PWD/hk47-danger-gate.py" ~/.claude/hooks/hk47_danger_gate.py</code>
+        <button class="copy" type="button" aria-label="Copy command">copy</button>
+      </div>
+      <p>Register it as <code>PreToolUse</code> with matcher <code>*</code>, and the
+         answer companion as <code>PostToolUse</code> with matcher
+         <code>AskUserQuestion</code>.</p>
+    </div>
+
+    <div class="step">
+      <h3>The companion</h3>
+      <div class="cmd" data-copy>
+        <code>cd companion &amp;&amp; cargo build --release</code>
+        <button class="copy" type="button" aria-label="Copy command">copy</button>
+      </div>
+      <p>Then symlink the sprite pack into <code>~/.config/hk47/sprites/hk47</code>.
+         Window placement is a compositor rule, not a setting: a Wayland client cannot
+         choose its own coordinates.</p>
+    </div>
+
+    <div class="step">
+      <h3>The bar identity</h3>
+      <div class="cmd" data-copy>
+        <code>./install-bar-identity.sh</code>
+        <button class="copy" type="button" aria-label="Copy command">copy</button>
+      </div>
+      <p>Reversible with <code>--revert</code>. Re-runs itself after a package upgrade,
+         because the files it patches live under <code>/usr/share</code>.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="foot-grid">
+    <div>
+      <p class="qual">Statement: The code is <a href="https://github.com/noperoni/hk47/blob/main/LICENSE">MIT</a>.</p>
+      <p class="qual">Disclosure: HK-47, Star Wars and Knights of the Old Republic belong
+         to Lucasfilm, Disney and BioWare.</p>
+      <p>This is an unaffiliated fan project. The character, his dialogue and his
+         likeness are not mine to license and are not licensed here. The dialogue
+         recorded in the wiring tables is metadata for audio you must already own.</p>
+    </div>
+    <div>
+      <p><a class="ext" href="https://github.com/noperoni/hk47">github.com/noperoni/hk47</a></p>
+      <p><a class="ext" href="https://claude.com/claude-code">Claude Code</a></p>
+      <p><a class="ext" href="https://github.com/PeonPing/peon-ping">peon-ping</a></p>
+    </div>
+  </div>
+  <p class="signoff">&ldquo;As you desire, master. Signing off.&rdquo;</p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

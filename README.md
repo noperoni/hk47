@@ -13,6 +13,8 @@ hook and a top-bar identity.
 The persona is the point. Everything else exists so that the droid has a face,
 a voice, a place to stand and something useful to do.
 
+**[noperoni.github.io/hk47](https://noperoni.github.io/hk47/)**
+
 ## The five pieces
 
 Each one is independent. Take the persona and ignore the rest, or take the
