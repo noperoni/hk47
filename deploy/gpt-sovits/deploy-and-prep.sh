@@ -96,3 +96,58 @@ print("text rows", len(opt), "semantic rows", len(sem) - 1)
 '
 
 echo "prepared: $PROJECT/logs/$EXP"
+
+# ---------------------------------------------------------------------------
+# TRAINING AND AUDITION, appended after the prep proved out. Run these after
+# hk47-write-configs.py has written TEMP/tmp_s2.json and TEMP/tmp_s1.yaml.
+#
+# Copy write-configs.py into the project first, because the experiment directory
+# is root-owned by the container that made it and the repo is not mounted inside:
+#
+#   cp deploy/gpt-sovits/write-configs.py "$PROJECT/hk47-write-configs.py"
+#   docker exec -w /workspace/GPT-SoVITS gpt-sovits \
+#     python3 hk47-write-configs.py /workspace/GPT-SoVITS
+#
+# Both trainers are launched with `docker exec -d` rather than through ssh in the
+# foreground, so they survive the ssh session dying rather than taking a SIGHUP
+# with it. MEASURED on this corpus: s2 is ~3 minutes over 8 epochs of 27 steps,
+# s1 under a minute over 15 epochs of 25. The GPU peaks near 11.6GB of 24, which
+# is why running this beside a CosyVoice tune on one card was refused.
+#
+# is_half=True is passed EXPLICITLY to every call. The container inherits
+# lowercase `true` from upstream's compose and eval() rejects it: this bit the
+# prep, then bit the audition separately, because inference_cli.py reads it too.
+#
+#   docker exec -d gpt-sovits sh -c "cd /workspace/GPT-SoVITS && \
+#     PYTHONPATH=/workspace/GPT-SoVITS:/workspace/GPT-SoVITS/GPT_SoVITS \
+#     python3 -s GPT_SoVITS/s2_train.py --config TEMP/tmp_s2.json \
+#     > /workspace/GPT-SoVITS/hk47-s2.log 2>&1"
+#
+#   docker exec -d gpt-sovits sh -c "cd /workspace/GPT-SoVITS && \
+#     PYTHONPATH=/workspace/GPT-SoVITS:/workspace/GPT-SoVITS/GPT_SoVITS \
+#     hz=25hz _CUDA_VISIBLE_DEVICES=0 \
+#     python3 -s GPT_SoVITS/s1_train.py --config_file TEMP/tmp_s1.yaml \
+#     > /workspace/GPT-SoVITS/hk47-s1.log 2>&1"
+#
+# Audition. inference_cli.py writes output_path/output.wav and does NOT create
+# output_path, so mkdir it first. The language arguments are Chinese labels by
+# upstream's own argparse choices: 英文 is English. The reference must be 3 to 10
+# seconds, which rules out the 20-second CosyVoice reference.
+#
+#   mkdir -p "$PROJECT/hk47-audition/out1"
+#   docker exec -e is_half=True \
+#     -e PYTHONPATH=/workspace/GPT-SoVITS:/workspace/GPT-SoVITS/GPT_SoVITS \
+#     -w /workspace/GPT-SoVITS gpt-sovits \
+#     python3 -s GPT_SoVITS/inference_cli.py \
+#     --gpt_model GPT_weights_v2Pro/hk47-e15.ckpt \
+#     --sovits_model SoVITS_weights_v2Pro/hk47_e8_s216.pth \
+#     --ref_audio /workspace/corpus/wav/nm17ac08hk01004.wav \
+#     --ref_text hk47-audition/ref.txt --ref_language 英文 \
+#     --target_text hk47-audition/t1.txt --target_language 英文 \
+#     --output_path hk47-audition/out1
+#
+# The s1 learning rate is a hardcoded 0.002 no matter what the config says:
+# WarmupCosineLRSchedule.step ends with `self.lr = lr = self.end_lr = 0.002` and
+# set_lr writes end_lr into every param group, so the warmup and cosine above it
+# are dead code. Do not tune the optimizer block expecting an effect; it only has
+# to survive construction arithmetic, which is where the JSON-as-YAML bug hit.
