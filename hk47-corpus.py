@@ -31,6 +31,12 @@ inside a container that sees this directory at a different mount point, so
 --audio-prefix sets what goes into wav.scp and the .list while --out sets where
 the files land. Default prefix is the omnivoice container's view.
 
+One prefix serves both engines even though they mount the corpus at different
+points, so there is deliberately no second knob: GPT-SoVITS's own step 2 keeps
+only the basename from the .list whenever inp_wav_dir is set, and its WebUI
+exposes that field. Only CosyVoice's wav.scp needs the prefix to be literally
+correct.
+
 The instruct string is the recipe's own default, verbatim. CosyVoice 3 prepends
 one to every training utterance and the zero-shot calls already in use send the
 same string, so keeping it identical means a tuned checkpoint drops into the
