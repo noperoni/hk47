@@ -21,8 +21,10 @@ KOTOR's streamwaves/*.wav carry a stub RIFF header with a zero-length data
 chunk followed by raw MP3 frames, so the sync word has to be found by hand
 before ffmpeg will touch them.
 
-Audio never leaves this machine: extracted from an owned install into the local
-config dir, for personal use only.
+Audio is extracted from an owned install into the local config dir, for personal
+use only. It never reaches a third party or a hosted service. It may cross the
+local network to another machine under the same ownership, which is how a
+cloning reference reaches the TTS host, and that is the only egress permitted.
 """
 
 import csv

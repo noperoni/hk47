@@ -7,6 +7,16 @@ __pycache__/
 # source corpus, which lives outside this repo and is referenced by resref.
 audition/
 
+# Cloned voice artefacts (PERS-2). A reference built from the corpus is still
+# the corpus, and a checkpoint trained on it carries the performance inside the
+# weights, so neither may enter a public repo. Listed before the first one
+# exists, so no ruling is needed in the moment one is produced.
+voices/
+*.ckpt
+*.safetensors
+*.pt
+*.pth
+
 # Local session state and tracker wiring. PROJECT.json names a private Plane
 # instance and its project UUIDs, and state.json is a running log of one
 # machine's work: neither belongs in a public clone.
