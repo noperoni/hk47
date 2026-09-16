@@ -24,8 +24,17 @@ import torchaudio
 
 R = "/root/.omnivoice/engines/cosyvoice/CosyVoice"
 P = f"{R}/pretrained_models/Fun-CosyVoice3-0.5B"
-EXP = f"{R}/examples/libritts/cosyvoice3/exp/hk47/llm/torch_ddp"
-WORK = "/root/.omnivoice/hk47-cosy-audition"
+# HK47_COSY_EXP points this at another ladder. The LoRA run saves adapters, not
+# models, so its rungs must go through hk47-merge-lora.py first and land in a dir
+# of epoch_N_whole.pt files before this script can see them.
+EXP = os.environ.get(
+    "HK47_COSY_EXP",
+    f"{R}/examples/libritts/cosyvoice3/exp/hk47/llm/torch_ddp",
+)
+# HK47_COSY_WORK keeps a second ladder's renders off the first one's: the files
+# are named by epoch alone, so two runs auditioned into one dir would silently
+# overwrite the control this one is judged against.
+WORK = os.environ.get("HK47_COSY_WORK", "/root/.omnivoice/hk47-cosy-audition")
 MODEL = f"{WORK}/model"
 OUT = f"{WORK}/out"
 
