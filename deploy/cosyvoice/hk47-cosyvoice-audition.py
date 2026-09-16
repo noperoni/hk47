@@ -112,14 +112,23 @@ def main():
         if not install_checkpoint(epoch):
             continue
         model = CosyVoice3(MODEL, load_trt=False, load_vllm=False, fp16=False)
-        for i, result in enumerate(
-            model.inference_zero_shot(TARGET, REF_TEXT, REF_WAV, stream=False)
-        ):
-            tag = epoch if isinstance(epoch, str) else f"epoch{epoch:02d}"
-            path = f"{OUT}/{tag}.wav"
-            torchaudio.save(path, result["tts_speech"], model.sample_rate)
-            print(f"{epoch}: wrote {path} at {model.sample_rate} Hz", flush=True)
-            break
+        # inference_zero_shot normalises the target with split=True and yields one
+        # result per segment. Taking the first and breaking, which is what this
+        # did until 2026-09-16, renders only the opening clause: every duration
+        # auditioned before that date was a first-segment duration wearing the
+        # whole line's name, and a longer target produced a SHORTER file because
+        # it split earlier. Segments are concatenated now.
+        segments = [
+            r["tts_speech"]
+            for r in model.inference_zero_shot(TARGET, REF_TEXT, REF_WAV, stream=False)
+        ]
+        tag = epoch if isinstance(epoch, str) else f"epoch{epoch:02d}"
+        path = f"{OUT}/{tag}.wav"
+        speech = torch.concat(segments, dim=1)
+        torchaudio.save(path, speech, model.sample_rate)
+        print(f"{epoch}: wrote {path}, {len(segments)} segment(s), "
+              f"{speech.shape[1] / model.sample_rate:.2f}s at {model.sample_rate} Hz",
+              flush=True)
         del model
         torch.cuda.empty_cache()
 
