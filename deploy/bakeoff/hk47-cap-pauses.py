@@ -28,6 +28,12 @@ floor-level silence: it is the decay tail of the preceding word and a breath
 above the floor, so a silence cap reaches a different quantity than the one being
 judged. Tuning the ceiling trades one file's over-correction for another's.
 
+THE VERIFICATION ABOVE WAS BLIND, amended 2026-09-18. "Drove ref31's gap to
+0.00s" was read off hk47-word-gaps.py, whose alignment collapses to a uniform
+0.00s without warning, so that number never described the audio. The negative
+result still stands on its own reasoning, that a silence cap reaches a different
+quantity than the one being judged, but its headline measurement does not.
+
 What the evidence actually supports is best-of-N. Good rolls are common, two of
 five landed at 0.30s, so rendering a handful and letting hk47-word-gaps.py pick
 the one nearest target is bounded, cheap on an engine at rtf under 1, and judges

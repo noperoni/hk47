@@ -14,6 +14,15 @@ Measured on 2026-09-18 over the two merged references, on the same line:
 
 Master called it twice as long as it needed to be. It is 2.1x.
 
+DO NOT RULE ON THESE NUMBERS ALONE, established 2026-09-18. Two failures live
+here. The alignment collapses without warning, tiling every word end to end so
+that every gap reads 0.00s, and it did that to a good render on small.en and to a
+different good render on medium.en, which is where the withdrawn 0.00s of commit
+37c1c97 came from. Even when it holds, the gap it prints is not silence: it
+includes the decay of the preceding word, and it runs 0.15-0.45s longer than the
+measured silence at the same boundary. hk47-gate.py reads the waveform and uses
+this only as a pointer to where in the file to look.
+
 CPU deliberately. Whisper's word-timestamp path calls a triton median-filter
 kernel on CUDA, and this container's triton refuses the in-place kernel.src
 rewrite it performs, so the GPU path raises AttributeError before any audio is
