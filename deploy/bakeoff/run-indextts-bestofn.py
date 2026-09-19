@@ -6,19 +6,21 @@
     ... --mood ref13-diag-then-protocol --line all -n 7
 
 This is the join between the renderer and hk47-gate.py, and it exists because
-IndexTTS samples its pause lengths. Measured silences before "master" across six
-renders of one reference, text and settings ran 0.07s to 0.51s, and on a blind
-listen of 2026-09-18 Master ranked them shortest-first, faulting only the two at
-0.44s. So the long pause is the defect, it is a roll of the dice rather than
-anything in the text, and re-rolling is cheaper than repairing it.
-hk47-cap-pauses.py tried the repair and is kept as the negative result.
+IndexTTS samples its pause lengths. The silence before "master" varies from 0.05s
+to 0.46s across identical calls, and Master hears the difference: on 2026-09-19
+he labelled eight winners one by one, passing 0.05s and 0.08s and faulting
+everything from 0.17s up as "1.5x too much". So the long pause is the defect, it
+is a roll of the dice rather than anything in the text, and re-rolling is cheaper
+than repairing it. hk47-cap-pauses.py tried the repair and is the negative result.
 
-The first passing roll wins. Nothing here ranks the passers against each other:
-his top four sat at 0.19s, 0.07s, 0.07s and 0.11s in that order, which is not
-monotone in the number, so the gate can say what is too long and nothing more.
-Rendering is the cheap half at an rtf under one; the aligner is the expensive
-half and loads Whisper once, which is why every roll is rendered before any is
-judged rather than gating one at a time.
+The first passing roll wins, and nothing here ranks the passers against each
+other, because the gate can say what is too long and nothing more. Rendering is
+the cheap half at an rtf under one; the aligner is the expensive half and loads
+Whisper once, which is why every roll is rendered before any is judged rather
+than gating one at a time.
+
+-n 8 rather than 5 is the ceiling's price: at 0.12s a healthy share of rolls are
+rejected, and a line that clears nothing keeps nothing at all.
 # ponytail: batch of N, all judged in one pass; make it incremental if N ever
 # grows past what a GPU minute is worth.
 
@@ -54,7 +56,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--mood", default="ref31-protocol-then-diag")
 ap.add_argument("--line", default="long", help="a key of hk47_bakeoff.LINES, or all")
 ap.add_argument("-n", "--rolls", type=int, default=5)
-ap.add_argument("--ceiling", type=float, default=0.30)
+ap.add_argument("--ceiling", type=float, default=0.12)
+ap.add_argument("--colon-ceiling", type=float, default=0.42)
 args = ap.parse_args()
 
 REF = f"{REFDIR}/{args.mood}.wav"
@@ -94,7 +97,7 @@ for line in LINES:
 
     judged = subprocess.run(
         [GATE_PYTHON, GATE, "--json", "--ceiling", str(args.ceiling),
-         "--text", text, *rolls],
+         "--colon-ceiling", str(args.colon_ceiling), "--text", text, *rolls],
         capture_output=True, text=True,
     )
     try:
@@ -112,16 +115,27 @@ for line in LINES:
               flush=True)
 
     winner = next((v for v in verdicts if v["pass"]), None)
-    if winner is None and all(v["max_gap"] is None for v in verdicts):
+    if winner is None and all(v["excess"] is None for v in verdicts):
         # The ceiling is judged at commas, and "short" has none. A line the gate
         # cannot rule on takes its first roll rather than losing every one.
         winner = verdicts[0]
         print(f"BAKEOFF {args.mood} {line}: no judged boundary in this line, "
               f"the gate abstained and roll1 stands", flush=True)
     if winner is None:
-        print(f"BAKEOFF {args.mood} {line}: NO ROLL CAME IN UNDER {args.ceiling:.2f}s "
-              f"in {args.rolls} attempts, nothing kept", flush=True)
-        continue
+        # Keeping nothing leaves the previous winner in place under a name that
+        # says it passed, which is worse than keeping the least bad roll and
+        # saying so. The query line earns this: its clause comma in "master, or"
+        # did not come under 0.17s in eight rolls while the address comma cleared
+        # three times, so the ceiling may not belong to both positions.
+        measured = [v for v in verdicts if v["excess"] is not None]
+        if not measured:
+            print(f"BAKEOFF {args.mood} {line}: NOTHING MEASURABLE in "
+                  f"{args.rolls} attempts, nothing kept", flush=True)
+            continue
+        winner = min(measured, key=lambda v: v["excess"])
+        print(f"BAKEOFF {args.mood} {line}: NO ROLL CLEARED ITS CEILINGS in "
+              f"{args.rolls} attempts, keeping the least bad at "
+              f"{winner['excess']:+.2f}s over UNDER PROTEST", flush=True)
 
     kept = bake.out_path(f"indextts25-{args.mood}", line)
     shutil.copyfile(winner["path"], kept)

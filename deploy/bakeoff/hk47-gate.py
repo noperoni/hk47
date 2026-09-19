@@ -21,18 +21,37 @@ twice as long as it should, which the previous session withdrew in commit 37c1c9
 on the strength of a 0.00s reading. That reading was the aligner collapsing, not
 audio: the file it came from is the one he has now ranked first.
 
-The ceiling is 0.30s by default, a midpoint rather than a measurement, because
-his set jumps from 0.19s accepted to 0.44s faulted with nothing auditioned in
-between. Move it with --ceiling once something in the gap is heard.
+THE CEILING IS 0.12s, SET 2026-09-19 FROM EIGHT LABELLED RENDERS. Master marked
+each of the best-of-N winners good or "pause before master too long", and the
+measurement brackets his line tightly: accepted at 0.05s and 0.08s, faulted at
+0.17s, 0.24s and 0.29s. 0.12s is the midpoint of that bracket and it reproduces
+all six of his rulings, the sixth being ref31-long, which no model can align and
+which the gate therefore refuses rather than passes.
 
-IT IS JUDGED AT COMMAS ONLY, and that is measurement rather than taste. The
-full stop in "master. The" holds 0.55s in the render he ranked first, and the
-colon in "Statement: Both" sits at 0.32-0.45s in all six including his
-favourites. A sentence break and a discourse prefix are supposed to breathe; the
-comma before the address is the one boundary his ranking discriminates on. Widen
-it with --judge-punct once another class has a ruling behind it.
-# ponytail: one ceiling shared by whichever classes are judged; separate numbers
-# per class when a second class earns one.
+His earlier blind ranking, which put 0.19s first and faulted 0.44s, set this at
+0.30s. The second set is the sharper instrument: it is per-file labels rather
+than an ordering, and it was taken after the blip-merging fix below changed what
+the numbers mean.
+
+THE COLON IS JUDGED TOO, AT 0.42s, added 2026-09-19 and the sharpest result of
+the lot. Master labelled eight renders and the pause after the qualifier splits
+them perfectly: 0.04s, 0.06s, 0.18s, 0.28s and 0.40s accepted, 0.45s, 0.48s and
+0.48s faulted. Two of the three he rejected have unimpeachable commas, and one
+of them has no comma in it at all, so the hole after "Explanation:" and
+"Affirmation:" is what he was hearing. The qualifier snaps into its sentence; it
+does not breathe. 0.42s is the midpoint of that 0.40/0.45 bracket, which is a
+thin margin and the first number to revisit if a render sounds wrong and passes.
+
+The full stop is measured and not judged. It runs 0.22-0.32s in renders he
+accepted and 0.55s in one he ranked first, and nothing has ever been faulted
+on it.
+
+KNOWN MISS: the "short" line. Its only boundary is "Affirmation: | HK-47", and
+difflib will not match "hk" against however Whisper spells the callsign, so the
+gate reports it uncertifiable and the runner abstains and keeps the first roll.
+Master's ear passed the ref13 short and faulted the ref31 one at 0.45s, so a
+render this gate cannot rule on can still be wrong. Alignment of the callsign is
+the fix, not a looser rule.
 #
 # No floor is imposed. 0.07s of silence sits in two of his top three, so words
 # arriving close together is not a defect he minds, and a floor invented here
@@ -74,6 +93,7 @@ BAKEOFF = "/root/.omnivoice/bakeoff/hk47_bakeoff.py"
 FRAME = 0.01
 FLOOR = 0.01   # RMS, matching hk47-cap-pauses.py
 WINDOW = 0.6   # how far either side of the transcript's word start to look
+BLIP = 4       # frames of sound too short to be a word, so too short to end a pause
 
 
 def expected_pauses(text):
@@ -115,17 +135,27 @@ def silence_before(energy, onset, previous):
     immediately before the onset. Walking back from the word stopped at that
     burst and called the pause 0.03s. A breath is part of pausing, not the end
     of one, so the burst has to be stepped over rather than believed.
+
+    BLIPS ARE MERGED INTO THE RUN THEY INTERRUPT, added 2026-09-19. ref31-long
+    breaks as 0.09s silent, a 20ms tick, then 0.44s silent, all at one boundary.
+    Master hears one long pause there and faulted it; the unmerged scan reported
+    0.09s. Nothing under BLIP frames can be a word, so it does not end a pause.
     """
     lo = max(0, int(max(previous, onset - WINDOW) / FRAME))
     hi = min(len(energy), int(onset / FRAME) + 1)
-    longest, run = 0, 0
+    longest, run, voiced = 0, 0, 0
     for value in energy[lo:hi]:
-        run = run + 1 if value < FLOOR else 0
+        if value < FLOOR:
+            run, voiced = run + voiced + 1, 0
+        elif run and voiced < BLIP:
+            voiced += 1          # held, in case silence resumes past this tick
+        else:
+            run, voiced = 0, 0
         longest = max(longest, run)
     return round(longest * FRAME, 2)
 
 
-def judge(model, path, text, ceiling, judge_punct):
+def judge(model, path, text, ceilings):
     heard = heard_words(model, path)
     energy = frame_energy(path)
     spoken = []
@@ -164,20 +194,33 @@ def judge(model, path, text, ceiling, judge_punct):
 
     # Whisper's word alignment collapses without warning, tiling every word end
     # to end so that its own gaps are uniformly zero. It did that to a good
-    # render on small.en and to a different good render on medium.en, which is
-    # why the verdict reads the waveform and this only marks the transcript as
-    # not worth trusting for position either.
+    # render on small.en and to a different good render on medium.en, so the
+    # verdict reads the waveform and this only marks the transcript as not worth
+    # trusting for position either.
+    #
+    # THE TELL IS THE CONTRADICTION, not the zeros. A line delivered without
+    # pauses honestly reports no gaps, and "short" does exactly that at 0.04s
+    # measured. A transcript claiming no gap anywhere while the waveform holds a
+    # third of a second of internal silence is the collapse.
     heard_gaps = [float(b["start"]) - float(a["end"]) for a, b in zip(heard, heard[1:])]
-    suspect = bool(heard_gaps) and not any(g > 0.01 for g in heard_gaps)
+    voiced = np.flatnonzero(energy >= FLOOR)
+    internal = 0.0
+    if len(voiced) > 1:
+        internal = silence_before(energy, float(voiced[-1]) * FRAME,
+                                  float(voiced[0]) * FRAME)
+    suspect = bool(heard_gaps) and not any(g > 0.01 for g in heard_gaps) \
+        and internal >= 0.15
 
-    judged = [g for g in gaps if g["punct"] in judge_punct]
+    judged = [g for g in gaps if g["punct"] in ceilings]
+    excess = max((round(g["gap"] - ceilings[g["punct"]], 2) for g in judged),
+                 default=None)
     worst = max((g["gap"] for g in judged), default=None)
     return {
         "path": path,
-        "pass": bool(judged and not lost and not suspect and worst <= ceiling),
+        "pass": bool(judged and not lost and not suspect and excess <= 0),
         "max_gap": worst,
-        "ceiling": ceiling,
-        "judged_punct": judge_punct,
+        "excess": excess,
+        "ceilings": ceilings,
         "gaps": gaps,
         "lost": lost,
         "at_head": at_head,
@@ -189,10 +232,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--line", default="long", help="key in hk47_bakeoff.LINES")
     ap.add_argument("--text", default="", help="the spoken text, overriding --line")
-    ap.add_argument("--ceiling", type=float, default=0.30)
-    ap.add_argument("--judge-punct", default=",",
-                    help="which punctuation the ceiling applies to; the rest are "
-                         "measured and reported only")
+    ap.add_argument("--ceiling", type=float, default=0.12,
+                    help="ceiling at a comma, in seconds")
+    ap.add_argument("--colon-ceiling", type=float, default=0.42,
+                    help="ceiling after a qualifier's colon, in seconds")
     ap.add_argument("--model", default="small.en")
     ap.add_argument("--fallback-model", default="medium.en",
                     help="re-read a render whose alignment collapsed; '' to disable")
@@ -207,8 +250,13 @@ def main():
         spec.loader.exec_module(bake)
         text = bake.LINES[args.line]
 
+    # Two entries rather than a parser for a syntax nobody asked for. A full
+    # stop is absent deliberately: it runs 0.22-0.32s in renders Master passed
+    # and nothing has ever been faulted on it.
+    ceilings = {",": args.ceiling, ":": args.colon_ceiling}
+
     model = whisper.load_model(args.model, device="cpu")
-    verdicts = [judge(model, path, text, args.ceiling, args.judge_punct) for path in args.wavs]
+    verdicts = [judge(model, path, text, ceilings) for path in args.wavs]
 
     # A collapsed alignment is per model and per file, so the second opinion is
     # only paid for on the renders that need it.
@@ -216,7 +264,7 @@ def main():
     if retry:
         second = whisper.load_model(args.fallback_model, device="cpu")
         for verdict in retry:
-            again = judge(second, verdict["path"], text, args.ceiling, args.judge_punct)
+            again = judge(second, verdict["path"], text, ceilings)
             again["model"] = args.fallback_model
             verdicts[verdicts.index(verdict)] = again
 
@@ -225,17 +273,18 @@ def main():
         return 0
 
     for verdict in verdicts:
-        worst = verdict["max_gap"]
-        summary = (f"worst {worst:.2f}s at {verdict['judged_punct']!r}"
+        worst, over = verdict["max_gap"], verdict["excess"]
+        summary = (f"worst {worst:.2f}s, {over:+.2f}s on its ceiling"
                    if worst is not None else "no judged boundary measured")
         note = "  alignment collapsed" if verdict["suspect_alignment"] else ""
         print(f"\n{os.path.basename(verdict['path'])}  "
               f"{'PASS' if verdict['pass'] else 'FAIL'}  {summary}{note}")
         for gap in verdict["gaps"]:
-            if gap["punct"] not in verdict["judged_punct"]:
+            limit = verdict["ceilings"].get(gap["punct"])
+            if limit is None:
                 note = "  (not judged)"
-            elif gap["gap"] > verdict["ceiling"]:
-                note = "  <<< over ceiling"
+            elif gap["gap"] > limit:
+                note = f"  <<< over {limit:.2f}s"
             else:
                 note = ""
             print(f"  {gap['gap']:5.2f}s silent (whisper said {gap['heard_gap']:5.2f}s)  "
