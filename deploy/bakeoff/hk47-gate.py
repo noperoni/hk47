@@ -46,12 +46,26 @@ The full stop is measured and not judged. It runs 0.22-0.32s in renders he
 accepted and 0.55s in one he ranked first, and nothing has ever been faulted
 on it.
 
-KNOWN MISS: the "short" line. Its only boundary is "Affirmation: | HK-47", and
-difflib will not match "hk" against however Whisper spells the callsign, so the
-gate reports it uncertifiable and the runner abstains and keeps the first roll.
-Master's ear passed the ref13 short and faulted the ref31 one at 0.45s, so a
-render this gate cannot rule on can still be wrong. Alignment of the callsign is
-the fix, not a looser rule.
+THE CALLSIGN MISS IS FIXED, 2026-09-20, and the diagnosis I had carried for two
+sessions was wrong. "difflib will not match hk against however Whisper spells the
+callsign" named the symptom and not the cause. Probed across two models and two
+renders, Whisper writes "HK-47" three ways:
+
+    ' HK', '-47'        which tokenises to hk, 47 and matches the text exactly
+    ' HK47'             one solid token, which matches neither hk nor 47
+    ' hk', ' forty', ' seven'
+
+So the boundary was lost only in the solid case, and the fault was the tokeniser
+rather than the matcher: [A-Za-z0-9']+ keeps letters and digits together, so it
+cannot see the hk inside hk47. Splitting letter runs from digit runs on BOTH
+sides makes all three spellings align on hk, which is the only token this line's
+one judged boundary needs. The spelled-out case still loses 47, and that costs
+nothing, because no punctuation stands in front of it.
+
+A boundary landing on a token that is NOT the first of its transcript word is
+reported LOST rather than measured, because it has no onset of its own: the only
+timestamp available is the whole word's start, which would put the pause before
+"HK47" in front of a boundary that actually sits in the middle of it.
 #
 # No floor is imposed. 0.07s of silence sits in two of his top three, so words
 # arriving close together is not a defect he minds, and a floor invented here
@@ -86,7 +100,7 @@ import numpy as np
 import soundfile as sf
 import whisper
 
-WORD = re.compile(r"[A-Za-z0-9']+")
+WORD = re.compile(r"[A-Za-z']+|[0-9]+")   # letters and digits are separate runs
 PUNCT = re.compile(r"[,.:;!?]")
 BAKEOFF = "/root/.omnivoice/bakeoff/hk47_bakeoff.py"
 
@@ -158,10 +172,17 @@ def silence_before(energy, onset, previous):
 def judge(model, path, text, ceilings):
     heard = heard_words(model, path)
     energy = frame_energy(path)
-    spoken = []
-    for word in heard:
-        found = WORD.search(word["word"])
-        spoken.append(found.group().lower() if found else "")
+
+    # One transcript word can carry several tokens, which is the whole callsign
+    # fix: "HK47" has to offer an "hk" for the text's "hk" to find. origin says
+    # which transcript word a token came from, and leads says whether it began
+    # that word and therefore owns its onset.
+    spoken, origin, leads = [], [], []
+    for index, word in enumerate(heard):
+        for position, token in enumerate(WORD.findall(word["word"].lower())):
+            spoken.append(token)
+            origin.append(index)
+            leads.append(position == 0)
 
     words, marks = expected_pauses(text)
     aligned = {}
@@ -176,20 +197,23 @@ def judge(model, path, text, ceilings):
             continue
         label = f"{words[i - 1]} | {words[i]}"
         j = aligned.get(i)
-        if j is None:
+        if j is None or (j < len(leads) and not leads[j]):
+            # Not aligned at all, or aligned inside a transcript word and so
+            # without an onset of its own. Both are uncertifiable, not measured.
             lost.append(label)
-        elif j == 0:
+        elif origin[j] == 0:
             at_head.append(label)
         else:
             # float() throughout: Whisper hands back numpy scalars, and a numpy
             # bool falling out of the comparison is not JSON serialisable.
-            start = float(heard[j]["start"])
+            h = origin[j]
+            start = float(heard[h]["start"])
             gaps.append({
                 "after": words[i - 1],
                 "before": words[i],
                 "punct": mark,
-                "gap": silence_before(energy, start, float(heard[j - 1]["start"])),
-                "heard_gap": round(start - float(heard[j - 1]["end"]), 2),
+                "gap": silence_before(energy, start, float(heard[h - 1]["start"])),
+                "heard_gap": round(start - float(heard[h - 1]["end"]), 2),
             })
 
     # Whisper's word alignment collapses without warning, tiling every word end
