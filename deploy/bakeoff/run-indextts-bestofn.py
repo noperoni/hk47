@@ -60,6 +60,11 @@ spec.loader.exec_module(bake)
 ap = argparse.ArgumentParser()
 ap.add_argument("--mood", default="ref13-diag-then-protocol")
 ap.add_argument("--line", default="long", help="a key of hk47_bakeoff.LINES, or all")
+# Arbitrary text, so the approved path can speak a real sentence rather than only
+# the four bake-off lines. LINES stays untouched on purpose: it is the fixed set
+# every engine was judged on, and growing it would make old renders incomparable.
+ap.add_argument("--text", default="", help="speak this instead of a LINES entry")
+ap.add_argument("--name", default="adhoc", help="output stem when --text is used")
 ap.add_argument("-n", "--rolls", type=int, default=5)
 ap.add_argument("--ceiling", type=float, default=0.12)
 ap.add_argument("--colon-ceiling", type=float, default=0.42)
@@ -68,7 +73,11 @@ args = ap.parse_args()
 REF = f"{REFDIR}/{args.mood}.wav"
 if not os.path.exists(REF):
     raise SystemExit(f"no such reference: {REF}, run run-indextts-merged.py first")
-LINES = list(bake.LINES) if args.line == "all" else [args.line]
+if args.text:
+    LINES, TEXTS = [args.name], {args.name: args.text}
+else:
+    LINES = list(bake.LINES) if args.line == "all" else [args.line]
+    TEXTS = bake.LINES
 
 sys.path.insert(0, ENGINE)
 os.chdir(ENGINE)
@@ -83,7 +92,7 @@ tts = IndexTTS2(
 )
 
 for line in LINES:
-    text = bake.LINES[line]
+    text = TEXTS[line]
     rolls = []
     for n in range(1, args.rolls + 1):
         path = bake.out_path(f"indextts25-{args.mood}", f"{line}-roll{n}")
