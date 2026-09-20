@@ -1,4 +1,4 @@
-"""IndexTTS 2.5: the two references Master ruled closest, merged, both orders.
+"""IndexTTS 2.5: the two references Master ruled closest, merged, diag first.
 
     docker exec omnivoice bash -lc \
       'cd /root/.omnivoice/engines/indextts2/index-tts-2.5 && \
@@ -18,9 +18,16 @@ were the two closest, and the stitched incumbent 7d29527a was not. The incumbent
 is five sentences of the courteous register and that courtesy is what read as
 British, which is the artefact he objected to.
 
-Both orders are rendered because the engine is autoregressive and the tail of a
+Both orders WERE rendered because the engine is autoregressive and the tail of a
 prompt carries more weight than its head, so which clip ends the reference is
-not a cosmetic choice. Whether that matters here is measurable only by ear.
+not a cosmetic choice. It mattered, and ONLY the ear could say so: on 2026-09-20
+Master heard eight best-of-N winners and ruled ref13 perfect and ref31 out. The
+gate had already leaned the same way across two labelled rounds, but it was
+never the deciding instrument.
+
+ref31 is struck from MERGED rather than from merge(), so the order is one line
+away if a later reference pair ever wants the same comparison. Its wav is left
+on the warehouse: it rebuilds from this file in seconds and costs 1.7MB to keep.
 
 The 200ms of silence between them is a seam, not a pause: butted directly
 together the two takes sound like one impossible breath, and an engine reading
@@ -64,9 +71,6 @@ os.makedirs(REFDIR, exist_ok=True)
 MERGED = {
     "ref13-diag-then-protocol": merge(
         DIAGNOSTIC, PROTOCOL, f"{REFDIR}/ref13-diag-then-protocol.wav"
-    ),
-    "ref31-protocol-then-diag": merge(
-        PROTOCOL, DIAGNOSTIC, f"{REFDIR}/ref31-protocol-then-diag.wav"
     ),
 }
 

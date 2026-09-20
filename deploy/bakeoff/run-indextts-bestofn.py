@@ -24,9 +24,14 @@ rejected, and a line that clears nothing keeps nothing at all.
 # ponytail: batch of N, all judged in one pass; make it incremental if N ever
 # grows past what a GPU minute is worth.
 
-Both merged moods are here because Master kept both orders on 2026-09-17. Only
-the "long" line has ever been rendered through them, so --line all is the way the
-other three catch up.
+ONE MOOD, from 2026-09-20. Both merge orders were rolled at n=8 across all four
+lines under these ceilings and Master labelled the eight winners: ref13 perfect,
+ref31 out. --mood still takes any name under REFDIR, and ref31's wav is still
+there, so the rejected order is one flag away if it is ever wanted as a control.
+
+--line all matters more than it looks: the model loads once per process, so four
+lines in one call cost one load rather than four. The full sweep is seven minutes
+of wall clock, not the thirty-five that eight separate invocations would spend.
 """
 
 import argparse
@@ -53,7 +58,7 @@ bake = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(bake)
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--mood", default="ref31-protocol-then-diag")
+ap.add_argument("--mood", default="ref13-diag-then-protocol")
 ap.add_argument("--line", default="long", help="a key of hk47_bakeoff.LINES, or all")
 ap.add_argument("-n", "--rolls", type=int, default=5)
 ap.add_argument("--ceiling", type=float, default=0.12)
