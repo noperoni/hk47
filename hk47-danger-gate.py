@@ -1230,13 +1230,45 @@ def emit(decision, reason, block=False):
     sys.exit(2 if block else 0)
 
 
+# Secrets travel inside the very commands this gate judges, and the trail keeps
+# them verbatim forever at whatever mode the umask allowed. Found 2026-09-21 when
+# reading the log put a live Zendesk API token into a session that had no business
+# holding one. These patterns cover the shapes actually seen in this log plus the
+# vendor prefixes that are unambiguous on sight. Redaction is one-way and applies
+# only to what is WRITTEN: every rule still judges the untouched command, so this
+# can never change a verdict.
+SECRET_PATTERNS = [
+    # curl -u user:secret / --user user:secret, incl. the user/token:secret form
+    re.compile(r"(-{1,2}u(?:ser)?[= ]+[\"']?[^\"'\s:]+:)([^\"'\s]+)"),
+    # Authorization: Bearer <t> / Basic <t>, header or bare
+    re.compile(r"((?:Bearer|Basic|Token)\s+)([A-Za-z0-9._~+/=-]{8,})", re.I),
+    # KEY=secret assignments, on the name rather than the value's shape
+    re.compile(r"((?:api[_-]?key|token|secret|password|passwd|pwd|auth)"
+               r"[\"']?\s*[:=]\s*[\"']?)([^\"'\s,}]{6,})", re.I),
+    # Vendor prefixes that are a credential wherever they appear
+    re.compile(r"\b((?:gh[pousr]_|sk-|xox[baprs]-|phc_|glpat-|AKIA))([A-Za-z0-9_-]{8,})"),
+]
+
+
+def redact(text):
+    """Strip credentials from text bound for the audit trail. Never used on the
+    text a rule judges: see SECRET_PATTERNS."""
+    if not isinstance(text, str):
+        return text
+    for pattern in SECRET_PATTERNS:
+        text = pattern.sub(lambda m: m.group(1) + "<redacted>", text)
+    return text
+
+
 def audit(record):
     """Append-only trail, because a guardrail with no record of what it stopped
     cannot be reviewed, and the point of this one is that it is reviewed."""
+    record = {k: redact(v) for k, v in record.items()}
     try:
         os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
         with open(LOG_PATH, "a") as fh:
             fh.write(json.dumps(record) + "\n")
+        os.chmod(LOG_PATH, 0o600)  # the trail quotes commands; umask is not enough
     except Exception:
         pass  # never let logging be the thing that breaks a tool call
 

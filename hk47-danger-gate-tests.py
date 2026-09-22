@@ -534,6 +534,60 @@ def record_cases():
     return out
 
 
+def redaction_cases():
+    """The audit trail quotes commands, and commands carry credentials.
+
+    Found live on 2026-09-21: reading the trail put a working Zendesk API token
+    into a session that had no business holding one. The load-bearing property is
+    the LAST case here, that redaction touches only what is written and never
+    what a rule judges.
+    """
+    out = []
+    with tempfile.TemporaryDirectory(prefix="hk47-gate-redact-") as tmp:
+        log = os.path.join(tmp, "audit.jsonl")
+        env = dict(os.environ, XDG_RUNTIME_DIR=tmp, HK47_GATE_LOG=log)
+
+        # The exact shape that leaked: curl -u user/token:secret, piped.
+        # Synthetic. Never paste the credential that prompted a test INTO the
+        # test: the first draft of this file used the real one and put it in a
+        # commit, which is the same leak wearing a lab coat.
+        secret = "NOTAREALTOKEN0000deadbeefcafe1234567890ab"
+        leaky = (f'curl -s -u "someone@example.com/token:{secret}" '
+                 f'"https://example.zendesk.com/api/v2/tickets.json" | python3 -m json.tool')
+        d, rc, _why = run_subprocess(leaky, "redact-A", env)
+        out.append(("the leaky command is still stopped", (d, rc) == ("deny", 2)))
+        trail = open(log).read()
+        out.append(("the curl secret is not in the trail", secret not in trail))
+        out.append(("the trail keeps the user part", "someone@example.com" in trail))
+        out.append(("the trail marks the redaction", "<redacted>" in trail))
+
+        for label, token, command in [
+            ("a bearer token", "abc123DEFghi456",
+             "curl -H 'Authorization: Bearer abc123DEFghi456' https://x/y | python3 -m json.tool"),
+            ("a github token", "ghp_0123456789abcdefghij",
+             "curl -H 'x: y' https://x/ghp_0123456789abcdefghij | python3 -m json.tool"),
+            ("an API_KEY assignment", "s3cr3t-value-here",
+             "curl https://x/?API_KEY=s3cr3t-value-here | python3 -m json.tool"),
+        ]:
+            run_subprocess(command, "redact-A", env)
+            out.append((f"{label} is not in the trail", token not in open(log).read()))
+
+        out.append(("the trail is not world-readable",
+                    oct(os.stat(log).st_mode & 0o777) == oct(0o600)))
+
+        # THE property: a redaction pattern must never eat a command's structure.
+        # The hook judges the untouched line, but if a future pattern were greedy
+        # enough to swallow a verb or a path, the trail would misname what was
+        # stopped, and the matrix is built from that trail.
+        for command in [leaky, "rm -rf /", "ssh host 'rm -rf /var/lib/mysql'",
+                        "ls", "git push origin main"]:
+            before = gate.judge(command, CWD)[0]
+            after = gate.judge(gate.redact(command), CWD)[0]
+            out.append((f"redaction changes no verdict: {command[:30]!r}",
+                        before == after))
+    return out
+
+
 def main():
     fails = []
     for command, want in CASES:
@@ -584,7 +638,12 @@ def main():
     for name, ok in modes:
         print(f"    {'ok  ' if ok else 'FAIL'}  {name}")
 
-    records = records + scripts + modes
+    redactions = redaction_cases()
+    print("\n  the audit trail, credentials kept out of it:")
+    for name, ok in redactions:
+        print(f"    {'ok  ' if ok else 'FAIL'}  {name}")
+
+    records = records + scripts + modes + redactions
     bad = (len(fails) + contract.count(False)
            + sum(1 for _name, ok in records if not ok))
     print(f"\n  {'ALL PASS' if not bad else str(bad) + ' FAILURES'}")
