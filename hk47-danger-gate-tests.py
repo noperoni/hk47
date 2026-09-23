@@ -572,6 +572,13 @@ def redaction_cases():
             run_subprocess(command, "redact-A", env)
             out.append((f"{label} is not in the trail", token not in open(log).read()))
 
+        # The answer hook writes the approved command into the same trail, and
+        # the approved command is the one carrying the credential.
+        run_answer(f"APPROVE: {leaky}", "redact-A", env)
+        trail = open(log).read()
+        out.append(("the answer hook recorded the approval", '"answered"' in trail))
+        out.append(("the answer hook does not leak the secret", secret not in trail))
+
         out.append(("the trail is not world-readable",
                     oct(os.stat(log).st_mode & 0o777) == oct(0o600)))
 
@@ -585,6 +592,36 @@ def redaction_cases():
             after = gate.judge(gate.redact(command), CWD)[0]
             out.append((f"redaction changes no verdict: {command[:30]!r}",
                         before == after))
+
+    # Redaction is the mitigation; separation is the fix. With no test seam set,
+    # each account's trail lives in its own CLAUDE_CONFIG_DIR, and neither the
+    # gate nor its answer hook writes into the other's.
+    with tempfile.TemporaryDirectory(prefix="hk47-gate-accounts-") as tmp:
+        work, personal = os.path.join(tmp, "work"), os.path.join(tmp, "personal")
+        base = {k: v for k, v in os.environ.items() if k != "HK47_GATE_LOG"}
+        base["XDG_RUNTIME_DIR"] = tmp
+        env_w = dict(base, CLAUDE_CONFIG_DIR=work)
+        env_p = dict(base, CLAUDE_CONFIG_DIR=personal)
+        run_subprocess("rm /home/user/work-only-marker.md", "acct-W", env_w)
+        run_answer("APPROVE: rm /home/user/work-only-marker.md", "acct-W", env_w)
+        run_subprocess("rm /home/user/personal-only-marker.md", "acct-P", env_p)
+        trail_w = os.path.join(work, "hk47-danger-gate.log")
+        trail_p = os.path.join(personal, "hk47-danger-gate.log")
+        read = lambda p: open(p).read() if os.path.exists(p) else ""
+        out.append(("the work trail is in the work config dir",
+                    "work-only-marker" in read(trail_w)))
+        out.append(("the personal trail is in the personal config dir",
+                    "personal-only-marker" in read(trail_p)))
+        out.append(("no work command reaches the personal trail",
+                    "work-only-marker" not in read(trail_p)))
+        out.append(("no personal command reaches the work trail",
+                    "personal-only-marker" not in read(trail_w)))
+        # Per line, not per string: the gate's own line names the marker twice
+        # (command and segment), which once let this pass with the answer hook
+        # still writing to ~/.claude.
+        out.append(("the answer hook writes to the same account's trail",
+                    any('"answered"' in line and "work-only-marker" in line
+                        for line in read(trail_w).splitlines())))
     return out
 
 

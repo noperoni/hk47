@@ -175,8 +175,14 @@ MAX_DEPTH = 10
 # HK47_GATE_LOG exists ONLY so the test suite can keep its noise out of the real
 # audit trail. It moves where the record of a decision is written; it can never
 # change a decision.
-LOG_PATH = (os.environ.get("HK47_GATE_LOG")
-            or os.path.expanduser("~/.claude/hk47-danger-gate.log"))
+# Otherwise the trail lives in the config dir of the account that ran the
+# command. One shared file pooled work and personal commands, and on 2026-09-21
+# reading it put a work credential into a personal session: redaction mitigates
+# that, keeping the accounts apart is the fix.
+LOG_PATH = os.path.expanduser(
+    os.environ.get("HK47_GATE_LOG")
+    or os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude",
+                    "hk47-danger-gate.log"))
 
 # What the droid is told when it is stopped. The wording matters: this string is
 # what comes back into the transcript, so it is the instruction the droid acts

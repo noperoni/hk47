@@ -51,9 +51,12 @@ import time
 RECORD_DIR = os.path.join(
     os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "hk47", "gate")
 # See the note on the same name in hk47-danger-gate.py: a test seam for where
-# the record is written, never for what is decided.
-LOG_PATH = (os.environ.get("HK47_GATE_LOG")
-            or os.path.expanduser("~/.claude/hk47-danger-gate.log"))
+# the record is written, never for what is decided; and, like the gate's, the
+# trail is kept per account.
+LOG_PATH = os.path.expanduser(
+    os.environ.get("HK47_GATE_LOG")
+    or os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude",
+                    "hk47-danger-gate.log"))
 
 # `APPROVE: rm -rf build` / `REFUSE: rm -rf build`. Case-insensitive on the
 # keyword only: a near-miss on case would fail closed, which is safe but merely
@@ -71,11 +74,30 @@ def record_path(session):
     return os.path.join(RECORD_DIR, safe + ".json")
 
 
+def load_redact():
+    """The gate's own redact(), so the two hooks can never disagree about what a
+    credential looks like. Resolved through the symlink the hook runs from."""
+    import importlib.util
+    here = os.path.dirname(os.path.realpath(__file__))
+    spec = importlib.util.spec_from_file_location(
+        "hk47_gate", os.path.join(here, "hk47-danger-gate.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.redact
+
+
 def audit(record):
+    """The command here is the one Master approved, credentials and all, so it is
+    redacted exactly as the gate's own trail is. No redactor, no line: a missing
+    record is a gap, a leaked token is a breach."""
     try:
+        redact = load_redact()
+        record = {k: [redact(x) for x in v] if isinstance(v, list) else redact(v)
+                  for k, v in record.items()}
         os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
         with open(LOG_PATH, "a") as fh:
             fh.write(json.dumps(record) + "\n")
+        os.chmod(LOG_PATH, 0o600)
     except Exception:
         pass
 
