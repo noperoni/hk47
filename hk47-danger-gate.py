@@ -754,6 +754,13 @@ def resolve(target, cwd):
     than resolved, so no rule can claim a local path was the thing at risk.
     """
     t = target.strip("\"'")
+    # An unexpanded `$HOME/x` once resolved to `<cwd>/$HOME/x`, which counted as
+    # temp from a /tmp cwd and as inside the project from anywhere: an Archon
+    # probe deleted a $HOME marker through it on 2026-09-23. What the shell will
+    # make of it is not knowable here, so it is returned as written and can
+    # never be mistaken for temp or for the working directory.
+    if "$" in t or "`" in t:
+        return t
     if cwd in OPAQUE_CWDS:
         return os.path.normpath(t) if os.path.isabs(t) else t
     if t.startswith("~"):

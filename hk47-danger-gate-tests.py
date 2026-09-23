@@ -631,6 +631,18 @@ def main():
         got, _rule, _seg, _why = gate.judge(command, CWD)
         if got != want:
             fails.append((command, want, got))
+    # A variable is not a relative path. The 2026-09-23 Archon probe ran from a
+    # /tmp cwd, where `$HOME/x` counted as temp and a recursive delete passed.
+    for command, cwd in (
+        ('rm -rf "$HOME/hk47-gate-probe-marker"', "/tmp/gate-probe"),
+        ("rm -rf $HOME/x", "/tmp/gate-probe"),
+        ("rm $HOME/.bashrc", CWD),
+        ('rm "${HOME}/notes.md"', CWD),
+        ("rm `pwd`/../notes.md", CWD),
+    ):
+        got, _rule, _seg, _why = gate.judge(command, cwd)
+        if got != "ask":
+            fails.append((f"{command}  [cwd {cwd}]", "ask", got))
     print(f"  judge(): {len(CASES) - len(fails)}/{len(CASES)} correct")
     for command, want, got in fails:
         print(f"    FAIL  {command!r}\n          wanted {want}, got {got}")
