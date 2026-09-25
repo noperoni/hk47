@@ -329,12 +329,61 @@ def strip_heredocs(command):
     return "".join(out), bodies
 
 
+class Tok(str):
+    """A token that remembers whether the shell would glob-expand it.
+
+    shlex resolves quoting, so `'a?b'` and `a?b` lex to the same string, and
+    the rm rule asked about a quoted `?` as though it were a wildcard: an sqlite
+    test file named `file:x?mode=memory` cost a matrix on 2026-09-25. Plain
+    str tokens (the unbalanced-quote fallback) carry no flag, and callers treat
+    that as "might glob", which judges more rather than less.
+    """
+    glob = False
+
+
+# Private-use stand-ins for glob characters the shell would NOT expand.
+_INERT = {"*": "\ue000", "?": "\ue001"}
+_REVIVE = str.maketrans({v: k for k, v in _INERT.items()})
+
+
+def _mark_inert_globs(command):
+    """Swap quoted or backslash-escaped `*` and `?` for stand-ins, so any glob
+    character left in a lexed token is one the shell would expand."""
+    out, quote, i = [], None, 0
+    while i < len(command):
+        ch = command[i]
+        if ch == "\\" and quote is None and i + 1 < len(command):
+            nxt = command[i + 1]
+            out.append(_INERT[nxt] if nxt in _INERT else ch + nxt)
+            i += 2
+            continue
+        if ch == "\\" and quote == '"' and i + 1 < len(command):
+            out.append(ch + command[i + 1])
+            i += 2
+            continue
+        if quote is None and ch in "\"'":
+            quote = ch
+        elif quote == ch:
+            quote = None
+        elif quote is not None and ch in _INERT:
+            ch = _INERT[ch]
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def lex(command):
     """Token list for a command string, operators included, quoting resolved."""
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer = shlex.shlex(_mark_inert_globs(command), posix=True,
+                            punctuation_chars=True)
         lexer.whitespace_split = True
-        return list(lexer)
+        tokens = []
+        for raw_tok in lexer:
+            tok = Tok(raw_tok.translate(_REVIVE))
+            tok.glob = "*" in raw_tok or "?" in raw_tok
+            tokens.append(tok)
+        return tokens
     except ValueError:
         # Unbalanced quote. Naive split still exposes argv[0], which is most of
         # what the rules need, so degrade rather than give up.
@@ -926,7 +975,7 @@ def rule_rm_general(argv, cwd, raw):
         if all(in_temp(resolve(t, cwd)) for t in targets):
             return None
         return "a recursive delete, which takes everything underneath without a second look"
-    if any("*" in t or "?" in t for t in targets):
+    if any(getattr(t, "glob", "*" in t or "?" in t) for t in targets):
         return "a glob delete, whose reach depends on what happens to be there"
     if cwd in OPAQUE_CWDS:
         # Neither the working directory nor what is in it is knowable on the far
