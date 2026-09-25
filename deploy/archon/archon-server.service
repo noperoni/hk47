@@ -1,0 +1,18 @@
+[Unit]
+Description=Archon API (HK-47 fork, live-reloading dev build)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/nfs/ops-center/Personal/archon-v2/packages/server
+Environment=CLAUDE_CONFIG_DIR=%h/.claude-personal
+# Dev mode otherwise runs the SDK's bundled Claude Code, which lags the terminal
+# and resolved opus to claude-opus-5 in the PERS-16 probe (2026-09-25).
+Environment=CLAUDE_BIN_PATH=%h/.local/share/mise/installs/claude/latest/claude
+Environment=PATH=%h/.local/share/mise/installs/claude/latest:%h/.local/bin:/usr/local/bin:/usr/bin
+ExecStart=/usr/bin/bun run dev
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

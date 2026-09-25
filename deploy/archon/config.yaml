@@ -1,0 +1,1 @@
+{tiers: {small: {provider: claude,model: "opus[1m]"},medium: {provider: claude,model: "opus[1m]"},large: {provider: claude,model: "opus[1m]"}}}

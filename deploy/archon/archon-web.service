@@ -1,0 +1,15 @@
+[Unit]
+Description=Archon web UI (HK-47 fork, vite dev server on localhost:5173)
+StartLimitIntervalSec=0
+Wants=archon-server.service
+
+[Service]
+Type=simple
+WorkingDirectory=/nfs/ops-center/Personal/archon-v2/packages/web
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+ExecStart=/usr/bin/bun run dev
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
