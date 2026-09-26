@@ -1124,13 +1124,161 @@ def rule_accounts(argv, cwd, raw):
     return None
 
 
-def rule_pipe_to_shell(raw):
-    m = re.search(r"\|\s*(?:sudo\s+)?(?:(?:ba)?sh|python3?|perl|ruby|node)\b",
-                  raw, re.I)
-    if m and re.search(r"\b(curl|wget|fetch)\b", raw, re.I):
-        return ("this executes whatever the network returns, sight unseen, "
-                "with your privileges", excerpt(raw, m, before=50, after=10))
+FETCHERS = {"curl", "wget", "fetch"}
+STDIN_SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "ash", "fish"}
+
+
+def reads_program_from_stdin(argv):
+    """True when an interpreter will EXECUTE what arrives on its stdin.
+
+    `curl ... | python3 -c '<script>'` and `curl ... | python3 -m json.tool` hand
+    the download to a program as DATA, and the program is the literal on the line.
+    The old regex could not tell them from `curl ... | sh`, and stopped both shapes
+    on 2026-09-26. Only an interpreter with no inline program, no module and no
+    script operand (or the operand `-`) runs its stdin. `bash -s` does so even
+    with operands, which then become its positional arguments.
+    """
+    head = os.path.basename(argv[0].strip("\"'")).lower()
+    inline = INTERPRETERS.get(head)
+    if inline is None:
+        return False
+    rest = argv[1:]
+    if any(tok in inline for tok in rest):
+        return False
+    if head in STDIN_SHELLS and "-s" in rest:
+        return True
+    if "-m" in rest:
+        return False
+    # ponytail: a flag that takes a value (`python3 -W ignore`) reads as a script
+    # operand and passes; parse per-interpreter value flags if that shape turns up.
+    operands = [tok for tok in rest if tok == "-" or not tok.startswith("-")]
+    return not operands or operands[0] == "-"
+
+
+def pipelines(line):
+    """A command line's pipelines, each a list of unwrapped argvs.
+
+    `|` and `|&` join segments into one pipeline; every other operator ends it,
+    because `curl -o f url && sh other.sh` feeds sh nothing from the network.
+    """
+    out, pipe, cur = [], [], []
+    for tok in lex(line) + [";"]:
+        is_op = tok in OPERATORS or (tok and set(tok) <= {"&", "|", ";"})
+        if not is_op:
+            cur.append(tok)
+            continue
+        if cur:
+            pipe.append(unwrap(cur)[0])
+            cur = []
+        if tok not in ("|", "|&"):
+            if pipe:
+                out.append(pipe)
+            pipe = []
+    return out
+
+
+def fetch_substituted(line):
+    """The segment that runs a download through substitution rather than a pipe.
+
+    `bash -c "$(curl -fsSL url)"` is the Homebrew install idiom and `bash <(curl
+    url)` its cousin; neither contains a `|`, so neither was ever stopped. Three
+    shapes, all of them the download standing where a program goes:
+
+      `$(fetch ...)` or `` `fetch ...` `` in command position, bare or under
+      eval, which runs the output as a command. A `-c "$(fetch)"` payload lands
+      here too, one level down.
+      `<(fetch ...)` handed to an interpreter or `source`, which runs the file.
+
+    Quoted text never reaches here as separate tokens, so `echo "sh <(curl x)"`
+    stays prose.
+    """
+    toks = lex(line)
+    for i, tok in enumerate(toks):
+        start = i
+        while start and toks[start - 1] not in OPERATORS - {"(", ")"}:
+            start -= 1
+        prefix = toks[start:i]
+        rest = toks[i + 1:]
+        if tok == "$" and rest[:1] == ["("] and base(rest[1:]) in FETCHERS:
+            head = [t for t in prefix if t != "("]
+            if not unwrap(head + ["X"])[0][:-1]:
+                return " ".join(toks[start:])
+        elif tok == "<(" and base(rest) in FETCHERS:
+            argv = unwrap(prefix)[0]
+            # only as the program: `python3 tool.py <(curl x)` hands it over as data
+            runs = base(argv) in INTERPRETERS or base(argv) in ("source", ".")
+            if argv and runs and all(t.startswith("-") for t in argv[1:]):
+                return " ".join(toks[start:])
+        elif i == start or not unwrap(prefix + ["X"])[0][:-1]:
+            # a quoted `"$(curl x)"` or a backtick in command position
+            inner = SUBST.match(tok) or re.match(r"`(\S+)", tok)
+            text = next((g for g in inner.groups() if g), "") if inner else ""
+            if text and base(text.split()) in FETCHERS:
+                return " ".join(toks[start:])
     return None
+
+
+def pipe_to_shell(text, depth=0, literals=False, where=None):
+    """(why, segment) for the first fetcher piped into an executing interpreter.
+
+    A regex over the raw line used to do this, and it read heredoc DATA and
+    quoted prose as though they were pipelines. This walks what a shell would
+    actually run, into the same places `collect` does: heredocs fed to an
+    interpreter, `-c` payloads, `$(...)`, ssh and container tails, and at depth
+    the string literals of a payload that may not be shell at all.
+    """
+    if depth > MAX_DEPTH or not text or not text.strip():
+        return None
+    text, heredocs = strip_heredocs(text)
+    nested = []
+    for body, receiver in heredocs:
+        argv, _ = unwrap(lex(receiver))
+        if argv and os.path.basename(argv[0].strip("\"'")).lower() in INTERPRETERS:
+            nested.append((body, True, where))
+    if depth and literals:
+        for lit in STRING_LITERAL.findall(text):
+            body = lit[0] or lit[1]
+            if body.strip() and body.strip() != text.strip():
+                nested.append((body, True, where))
+    for body in SUBST.findall(text):
+        nested.extend((inner, literals, where) for inner in body if inner.strip())
+    def hit(segment):
+        why = ("this executes whatever the network returns, sight unseen, with "
+               "your privileges")
+        if where:
+            return f"{why}, {where_words(where)}", f"{where[0]} {where[1]}: {segment}"
+        return why, segment
+
+    lines = logical_lines(text) if depth else command_lines(text)
+    for line in lines:
+        substituted = fetch_substituted(line)
+        if substituted:
+            return hit(substituted)
+        for pipe in pipelines(line):
+            for i, argv in enumerate(pipe):
+                if not argv:
+                    continue
+                if i and reads_program_from_stdin(argv):
+                    fetcher = next((a for a in pipe[:i] if a and base(a) in FETCHERS),
+                                   None)
+                    if fetcher:
+                        return hit(f"{' '.join(fetcher)} | {' '.join(argv)}")
+                nested.extend((p, True, where) for p in payloads(argv))
+                remote = remote_payload(argv)
+                if remote:
+                    nested.append((remote[1], False, ("remote", remote[0])))
+                inside = container_payload(argv)
+                if inside:
+                    nested.append((inside[1], False, ("container", inside[0])))
+    for body, lits, at in nested:
+        hit = pipe_to_shell(body, depth + 1, lits, at)
+        if hit:
+            return hit
+    return None
+
+
+def rule_pipe_to_shell(raw):
+    return pipe_to_shell(raw)
 
 
 def rule_sql_destructive(raw):
