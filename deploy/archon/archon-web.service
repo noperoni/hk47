@@ -1,5 +1,5 @@
 [Unit]
-Description=Archon web UI (HK-47 fork, vite dev server on localhost:5173)
+Description=Archon web UI (HK-47 fork, vite dev server on :55173, API on :53090)
 StartLimitIntervalSec=0
 Wants=archon-server.service
 
@@ -7,6 +7,7 @@ Wants=archon-server.service
 Type=simple
 WorkingDirectory=/nfs/ops-center/Personal/archon-v2/packages/web
 Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+Environment=PORT=53090
 ExecStart=/usr/bin/bun run dev
 Restart=on-failure
 RestartSec=5

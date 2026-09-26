@@ -6,6 +6,9 @@ StartLimitIntervalSec=0
 Type=simple
 WorkingDirectory=/nfs/ops-center/Personal/archon-v2/packages/server
 Environment=CLAUDE_CONFIG_DIR=%h/.claude-personal
+# Off the upstream defaults (3090/5173) at Master's ruling; a LAN reverse proxy
+# reaches these. archon-web reads the same PORT for its /api proxy.
+Environment=PORT=53090
 # Dev mode otherwise runs the SDK's bundled Claude Code, which lags the terminal
 # and resolved opus to claude-opus-5 in the PERS-16 probe (2026-09-25).
 Environment=CLAUDE_BIN_PATH=%h/.local/share/mise/installs/claude/latest/claude
