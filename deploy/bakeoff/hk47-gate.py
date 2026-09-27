@@ -252,6 +252,55 @@ def judge(model, path, text, ceilings):
     }
 
 
+def ceilings_of(comma, colon):
+    # Two entries rather than a parser for a syntax nobody asked for. A full
+    # stop is absent deliberately: it runs 0.22-0.32s in renders Master passed
+    # and nothing has ever been faulted on it.
+    return {",": comma, ":": colon}
+
+
+class Models:
+    """Whisper loaded once. The fallback loads on first need and then stays."""
+
+    def __init__(self, name, fallback_name):
+        self.model = whisper.load_model(name, device="cpu")
+        self.fallback_name = fallback_name
+        self.fallback = None
+
+    def judge_all(self, wavs, text, ceilings):
+        verdicts = [judge(self.model, path, text, ceilings) for path in wavs]
+        # A collapsed alignment is per model and per file, so the second opinion
+        # is only paid for on the renders that need it.
+        retry = [v for v in verdicts if v["suspect_alignment"]] if self.fallback_name else []
+        if retry and self.fallback is None:
+            self.fallback = whisper.load_model(self.fallback_name, device="cpu")
+        for verdict in retry:
+            again = judge(self.fallback, verdict["path"], text, ceilings)
+            again["model"] = self.fallback_name
+            verdicts[verdicts.index(verdict)] = again
+        return verdicts
+
+
+def serve(args):
+    """The mouth's gate (PERS-2): one warm process, one JSON line in, one out.
+
+    Request:  {"text": "...", "wavs": ["/path.wav"], "ceiling": 0.12, "colon_ceiling": 0.42}
+    Response: the verdict list, or {"error": "..."} on a bad request.
+    """
+    models = Models(args.model, args.fallback_model)
+    print(json.dumps({"ready": True}), flush=True)
+    for raw in sys.stdin:
+        try:
+            req = json.loads(raw)
+            ceilings = ceilings_of(req.get("ceiling", args.ceiling),
+                                   req.get("colon_ceiling", args.colon_ceiling))
+            out = models.judge_all(req["wavs"], req["text"], ceilings)
+        except Exception as exc:  # one bad request must not kill the warm models
+            out = {"error": f"{type(exc).__name__}: {exc}"}
+        print(json.dumps(out), flush=True)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--line", default="long", help="key in hk47_bakeoff.LINES")
@@ -264,33 +313,25 @@ def main():
     ap.add_argument("--fallback-model", default="medium.en",
                     help="re-read a render whose alignment collapsed; '' to disable")
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("wavs", nargs="+")
+    ap.add_argument("--serve", action="store_true",
+                    help="keep the models warm and judge one JSON request per stdin line")
+    ap.add_argument("wavs", nargs="*")
     args = ap.parse_args()
+    if not args.serve and not args.wavs:
+        ap.error("wavs are required unless --serve")
 
     text = args.text
-    if not text:
+    if not text and not args.serve:
         spec = importlib.util.spec_from_file_location("hk47_bakeoff", BAKEOFF)
         bake = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(bake)
         text = bake.LINES[args.line]
 
-    # Two entries rather than a parser for a syntax nobody asked for. A full
-    # stop is absent deliberately: it runs 0.22-0.32s in renders Master passed
-    # and nothing has ever been faulted on it.
-    ceilings = {",": args.ceiling, ":": args.colon_ceiling}
+    if args.serve:
+        return serve(args)
 
-    model = whisper.load_model(args.model, device="cpu")
-    verdicts = [judge(model, path, text, ceilings) for path in args.wavs]
-
-    # A collapsed alignment is per model and per file, so the second opinion is
-    # only paid for on the renders that need it.
-    retry = [v for v in verdicts if v["suspect_alignment"]] if args.fallback_model else []
-    if retry:
-        second = whisper.load_model(args.fallback_model, device="cpu")
-        for verdict in retry:
-            again = judge(second, verdict["path"], text, ceilings)
-            again["model"] = args.fallback_model
-            verdicts[verdicts.index(verdict)] = again
+    models = Models(args.model, args.fallback_model)
+    verdicts = models.judge_all(args.wavs, text, ceilings_of(args.ceiling, args.colon_ceiling))
 
     if args.json:
         print(json.dumps(verdicts))

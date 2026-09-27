@@ -1,0 +1,47 @@
+# The mouth's phrase pool (PERS-2 x PERS-5). DRAFT 4, awaiting Master's audition.
+# class	text
+# Rulings of 2026-09-27, each from a measured audition:
+# - ONE SENTENCE PER LINE. Draft 1's "X, master. Y." put a 0.30s median full stop
+#   mid-line, which Master heard as lag. The game's own audio pauses as long
+#   (0.32s median after "master." over 98 corpus boundaries), so the fix is the
+#   text and not a ceiling.
+# - "MASTER" IS NEVER SPOKEN. The comma before it is the boundary IndexTTS
+#   stretches most (15 of 27 failures in draft 2). The mouth server strips the
+#   vocative from every request (spoken() in deploy/mouth/hk47-mouth-server.py),
+#   so ad-lib dialogue is covered too; written chat keeps it.
+# - FEW COMMAS IN LIVE LINES. Draft 2's ", and" joins failed 9 times. {list} is
+#   joined with "and" throughout (Archon and jobhunting and Fleet), because list
+#   commas were the last protests in draft 3. The comma ceiling for the mouth is
+#   0.08s, tighter than the bake-off's 0.12s.
+# Stock classes carry no placeholder. Live classes carry {project}, {list} or {n}.
+ask	Query: Can I bother you?
+ask	Query: Have you a moment for your faithful droid?
+ask	Query: May I interrupt?
+ask	Query: A word, when you have finished killing things?
+ask	Query: Now, or after this one?
+opener	Statement: I have something for you.
+opener	Statement: A matter requires your organic judgement.
+opener	Observation: The work has stopped and is waiting on you.
+opener	Statement: Pardon the interruption, but duty calls.
+meantime	Observation: While we were busy, others joined the queue.
+meantime	Statement: More things waited while we talked.
+meantime	Statement: The queue did not stay empty in the meantime.
+meantime	Observation: The queue has grown in the meantime.
+q_design	Query: Will you take a question from {project}?
+q_design	Statement: {project} wants your decision.
+q_design	Statement: {project} is politely asking for you for once.
+q_approval	Statement: {project} wants permission to proceed.
+q_approval	Query: May {project} proceed?
+q_approval	Statement: {project} will not move without your say.
+q_gate_matrix	Warning: {project} wants to destroy something.
+q_gate_matrix	Caution: My gate is holding {project} back from something irreversible.
+q_gate_matrix	Warning: {project} is asking to delete and I have stopped it.
+t_done	Statement: {project} has finished and awaits your inspection.
+t_done	Statement: {project} is done.
+t_done	Observation: The work on {project} has stopped.
+t_failed	Observation: {project} has failed and I did not do it.
+t_failed	Statement: {project} has fallen over.
+t_failed	Observation: {project} has died on its task.
+summary	Query: Where do we start with {list}?
+summary	Statement: {n} projects are waiting on you.
+summary	Query: Which comes first of {list}?
