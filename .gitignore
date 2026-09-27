@@ -25,6 +25,10 @@ voices/
 # Local scratch that some helper scripts write next to the repo.
 /tmp-out/
 
+# PERS-20 Jev eval corpus and labels: Master's own session text, drawn from
+# transcripts. Only the harness (hk47-jev-eval.py) is tracked.
+jev-eval/data/
+
 # Homelab wiring for the Archon console: names a private domain and LAN
 # addresses, the same class of detail purged before the repo went public.
 deploy/archon/k8s/
