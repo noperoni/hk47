@@ -421,7 +421,8 @@ def cmd_score(args):
                 sys.exit(f"Cost ceiling ${COST_CEILING} reached; stopping.")
             out = jev(corpus[i]["state"], key)
             spent += out["usage"]["cost"]
-            cache[i] = {"id": i, **out}
+            # The response carries its own generation id; ours must win the key.
+            cache[i] = {**out, "gen_id": out.get("id"), "id": i}
             f.write(json.dumps(cache[i]) + "\n")
     if args.probe:
         for i in ids:
