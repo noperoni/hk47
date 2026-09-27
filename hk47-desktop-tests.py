@@ -55,6 +55,10 @@ CAP_BRAVE = [{"index": 2, "node": "Brave input", "app": "Brave input",
 
 CAP_BRAVE_CORKED = [dict(CAP_BRAVE[0], live=False)]
 
+CAP_SC2 = [{"index": 89016, "node": "StarCraft II (Retail)", "app": "StarCraft II (Retail)",
+            "binary": "wine64-preloader", "media": "audio stream #5", "live": True, "own": False,
+            "ignored": True}]
+
 PLAYER_BRAVE = {"bus": "org.mpris.MediaPlayer2.brave.instance9011", "process": "brave",
                 "pid": 9011, "status": "Playing", "can_pause": True, "identity": "Brave"}
 
@@ -108,6 +112,10 @@ def class_cases():
           desktop.classify(CAP_BRAVE, False), "meeting")
     check("our own dictation is not a meeting",
           desktop.classify(CAP_CLAUDE, False), "ordinary")
+    check("StarCraft II's open mic is not a meeting (measured 2026-09-27)",
+          desktop.classify(CAP_SC2, False), "ordinary")
+    check("StarCraft II beside a real call is still a meeting",
+          desktop.classify(CAP_SC2 + CAP_BRAVE, False), "meeting")
     check("a corked capture is not a meeting",
           desktop.classify(CAP_BRAVE_CORKED, False), "ordinary")
     check("a meeting outranks a declared focus mode",

@@ -122,6 +122,11 @@ EXIT_REFUSED = 3
 # own ear for a call on the day it grows one.
 DEFAULT_OWN_CAPTURE_NODES = ("alsa_capture.claude", "hk47-listen")
 
+# Capture streams that are not ours but are never a call either. StarCraft II
+# holds the microphone open for in-game voice chat that Master never uses
+# (ruled 2026-09-27), so while he played the queue ran in arrival order.
+IGNORED_CAPTURE_NODES = ("StarCraft II (Retail)",)
+
 # The only Hyprland dispatcher this tool may ever call. Master's ruling is that
 # the tiling composition is never rearranged to let the droid talk, and a list
 # that `dispatch()` checks is a mechanism where a comment would only be a wish.
@@ -268,6 +273,7 @@ def captures():
             # pw-dump if a held call ever proves to cork its capture stream.
             "live": not bool(item.get("corked")),
             "own": node in own,
+            "ignored": node in IGNORED_CAPTURE_NODES,
         })
     return out
 
@@ -394,7 +400,7 @@ def unlink(path):
 
 
 def classify(caps, focus_mode):
-    if any(c["live"] and not c["own"] for c in caps):
+    if meeting_holders(caps):
         return "meeting"
     if focus_mode:
         return "focus"
@@ -402,7 +408,7 @@ def classify(caps, focus_mode):
 
 
 def meeting_holders(caps):
-    return [c for c in caps if c["live"] and not c["own"]]
+    return [c for c in caps if c["live"] and not c["own"] and not c.get("ignored")]
 
 
 # --- planning, which is the whole of the policy and touches nothing ----------
