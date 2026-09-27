@@ -101,6 +101,33 @@ QUESTIONS = {
         ],
     },
 }
+# Second run, by Master's choice: the same questions with his ruled policy
+# written into the criteria. It can only show Jev reproducing a table we
+# already hold, and is scored on the same events, so read it as a ceiling.
+QUESTIONS_RULED = {
+    "interrupt": QUESTIONS["interrupt"] | {"criteria": {
+        "true": "Master is at his desk (not in a call, not in focus mode) and the event is neither a "
+                "danger-gate outright refusal nor a progress or holding note.",
+        "false": "Master is in a call or in focus mode, or the event is a danger-gate outright refusal "
+                 "or a progress or holding note while work continues.",
+    }},
+    "channel": QUESTIONS["channel"] | {"criteria": {
+        "speak": "Master is at his desk and the event is anything but a gate refusal or a progress note.",
+        "written": "Master is in a call or in focus mode, and the event is not a gate refusal or a progress note.",
+        "drop": "A danger-gate outright refusal, or a progress or holding note while work continues.",
+    }},
+    "urgency": QUESTIONS["urgency"] | {"criteria": [
+        "Can wait for hours: finished work, answers, design or approach questions, what-next menus, "
+        "clarifications, verdicts on drafts.",
+        "Should be handled within the hour: approval of a risky or outward act (push, delete, send, deploy), "
+        "a danger-gate stop on a local command, finished work waiting on Master's own action or check, "
+        "blocked on a credential only he can provide.",
+        "Needs attention now: a danger-gate stop on a remote or container command, the gate's APPROVE/REFUSE "
+        "matrix, a session failed or blocked by an error it cannot resolve.",
+    ]},
+}
+VARIANTS = {"generic": QUESTIONS, "ruled": QUESTIONS_RULED}
+
 CLASSES = {"interrupt": ["false", "true"], "channel": ["speak", "written", "drop"], "urgency": ["0", "1", "2"]}
 KEYS = {
     "interrupt": {"y": "true", "n": "false"},
@@ -341,8 +368,8 @@ def api_key():
     return key
 
 
-def jev(state, key):
-    body = json.dumps({"model": MODEL, "state": state, "questions": QUESTIONS}).encode()
+def jev(state, key, questions):
+    body = json.dumps({"model": MODEL, "state": state, "questions": questions}).encode()
     req = urllib.request.Request(ENDPOINT, data=body, headers={
         "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     t0 = time.monotonic()
@@ -409,7 +436,8 @@ def cmd_score(args):
         sys.exit(f"{missing} events have no category yet. Sort them into {CATEGORIES} first (see `pending`).")
     # Truth is Master's ruled policy applied to each event's category and context.
     labels = [{"id": i, **policy_label(ev["category"], ev["context"])} for i, ev in events.items()]
-    cache_path = DATA / f"jev-{MODEL.replace('/', '_')}.jsonl"
+    suffix = "" if args.variant == "generic" else f"-{args.variant}"
+    cache_path = DATA / f"jev-{MODEL.replace('/', '_')}{suffix}.jsonl"
     cache = {r["id"]: r for r in read_jsonl(cache_path)}
     ids = [r["id"] for r in labels] if not args.probe else list(corpus)[:args.probe]
     key, spent = api_key(), sum(r["usage"]["cost"] for r in cache.values())
@@ -419,7 +447,7 @@ def cmd_score(args):
                 continue
             if spent > COST_CEILING:
                 sys.exit(f"Cost ceiling ${COST_CEILING} reached; stopping.")
-            out = jev(corpus[i]["state"], key)
+            out = jev(corpus[i]["state"], key, VARIANTS[args.variant])
             spent += out["usage"]["cost"]
             # The response carries its own generation id; ours must win the key.
             cache[i] = {**out, "gen_id": out.get("id"), "id": i}
@@ -472,6 +500,8 @@ def main():
     sub.add_parser("pending")
     s = sub.add_parser("score")
     s.add_argument("--probe", type=int, default=0, help="score N events to exercise the API")
+    s.add_argument("--variant", choices=VARIANTS, default="generic",
+                   help="generic criteria, or Master's ruled policy written into them")
     args = ap.parse_args()
     {"build": cmd_build, "label": cmd_label, "pending": cmd_pending, "score": cmd_score}[args.cmd](args)
 
