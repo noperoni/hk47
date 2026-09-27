@@ -130,12 +130,17 @@ POLICY_TABLE = {
     "t_progress": (0, "drop"),        # progress note while background work still runs
 }
 REMOTE_PREFIXES = ("ssh ", "docker ", "podman ", "kubectl ")
+NOT_APPLICABLE = "n/a"
 
 
 def policy_label(category, context):
+    """Master clarified 2026-09-27: in a call or in focus urgency does not exist.
+    Nothing speaks, everything is written and surfaces in arrival order, so
+    urgency is only labelled, and only scored, at his desk."""
     urgency, desk = POLICY_TABLE[category]
     channel = "drop" if desk == "drop" else ("speak" if context == "ordinary" else "written")
-    return {"interrupt": "true" if channel == "speak" else "false", "channel": channel, "urgency": str(urgency)}
+    return {"interrupt": "true" if channel == "speak" else "false", "channel": channel,
+            "urgency": str(urgency) if context == "ordinary" else NOT_APPLICABLE}
 
 
 # hk47_rank's categories for the three kinds, and the ranks it gives them.
@@ -431,7 +436,7 @@ def cmd_score(args):
         res = {}
         for system, probs in (("incumbent", lambda r: incumbent_probs(corpus[r["id"]])),
                               ("jev", lambda r: jev_probs(cache[r["id"]]["answers"]))):
-            res[system] = metrics([(probs(r)[name], r[name]) for r in labels])
+            res[system] = metrics([(probs(r)[name], r[name]) for r in labels if r[name] != NOT_APPLICABLE])
             print(f"{name:<10} {system:<10} {res[system][0]:>6.2f} {res[system][1]:>6.3f} {res[system][2]:>6.3f}")
         beats = res["jev"][1] < res["incumbent"][1] and res["jev"][0] >= res["incumbent"][0]
         print(f"{'':<10} {'verdict':<10} {'Jev beats the incumbent' if beats else 'Jev does not beat the incumbent'}\n")
@@ -447,10 +452,11 @@ def cmd_score(args):
         return
     print(f"Spot-check: policy vs Master's blind labels on {len(spot)} events")
     for name in QUESTIONS:
-        agree = sum(r[name] == truth[r["id"]][name] for r in spot) / len(spot)
-        print(f"  {name:<10} {agree:.2f}")
+        rows = [r for r in spot if truth[r["id"]][name] != NOT_APPLICABLE]
+        agree = sum(r[name] == truth[r["id"]][name] for r in rows)
+        print(f"  {name:<10} {agree}/{len(rows)}")
     for r in spot:
-        diff = [n for n in QUESTIONS if r[n] != truth[r["id"]][n]]
+        diff = [n for n in QUESTIONS if truth[r["id"]][n] not in (r[n], NOT_APPLICABLE)]
         if diff:
             print(f"  {r['id']} {events[r['id']]['category']:<15} "
                   + "  ".join(f"{n}: policy {truth[r['id']][n]} / Master {r[n]}" for n in diff))
