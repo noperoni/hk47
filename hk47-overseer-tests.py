@@ -99,7 +99,7 @@ class Events:
     def __init__(self):
         self.queue = []
 
-    def push(self, session, flag="waiting"):
+    def push(self, session, flag="question"):
         self.queue.append({"session": session, "flag": flag})
 
     def read(self):
@@ -223,6 +223,11 @@ def exchange_cases():
     events.push("s-hk47", "clear")
     check("an item answered in its session is never spoken", run_until(o, clock, 30), None)
     check("and nothing was said", hands.played, [])
+
+    o, hands, events, clock = rig()
+    events.push("s-hk47", "waiting")
+    check("a finished turn opens no exchange", run_until(o, clock, 60), None)
+    check("and is not spoken unasked", hands.played, [])
 
     for ctx in ("meeting", "focus"):
         o, hands, events, clock = rig(ctx)

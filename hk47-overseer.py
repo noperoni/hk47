@@ -12,8 +12,9 @@ desktop hushed around it. No model: every line comes from hk47-mouth-lines.tsv.
 
 THE EXCHANGE, AS MASTER RULED IT (2026-09-27, 2026-09-28)
 ---------------------------------------------------------
-  1. An item arrives: a session raised a question, a permission prompt or a
-     finished turn. Each arrival restarts a QUIET_SECONDS timer, capped at
+  1. An item arrives: a session raised a question or a permission prompt. A
+     finished turn never arrives (Master, 2026-09-28): it is spoken only when
+     he asks what is waiting. Each arrival restarts a QUIET_SECONDS timer, capped at
      CAP_SECONDS from the first, so a burst is one exchange and not five.
   2. The window closes. Voice off, meeting or focus: nothing is said, ever.
      Written mode owns those items and they stay in `hk47-queue.py list`.
@@ -97,7 +98,10 @@ POLL_SECONDS = 0.5
 ROLLS = 1
 
 STOCK = ("ask", "ask_game", "meantime", "dismissed", "last", "unheard")
-ARRIVING = ("question", "permission", "waiting")   # the badge hook's raise flags
+# The badge hook's raise flags that open an exchange. Not "waiting", a finished
+# turn: Master ruled 2026-09-28 that those are spoken only when he asks, so they
+# wait in writing and on the badge, and "what's waiting" still names them.
+ARRIVING = ("question", "permission")
 
 # Measured 2026-09-28 on Master's mic: three silent presses of 1.8-3.1s, each
 # heard as "Thank you.", scored no_speech_prob 0.835-0.892; eight spoken presses
