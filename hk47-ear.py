@@ -199,7 +199,7 @@ def verb_release(_args):
 
     record = {"t": datetime.now().isoformat(timespec="seconds"), "text": heard.get("text", ""),
               "clip_seconds": round(seconds, 2), "rms_dbfs": rms_dbfs(audio),
-              "whisper_seconds": heard.get("seconds")}
+              "whisper_seconds": heard.get("seconds"), "segments": heard.get("segments")}
     with open(HEARD, "a") as handle:
         handle.write(json.dumps(record) + "\n")
     return desktop.emit(record)

@@ -110,7 +110,8 @@ class FakeEar(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         FakeEar.received.append((self.path, self.headers.get("Content-Type"), len(body)))
-        payload = json.dumps({"text": "yes, go ahead", "seconds": 0.21}).encode()
+        payload = json.dumps({"text": "yes, go ahead", "seconds": 0.21,
+                              "segments": [{"no_speech_prob": 0.02, "avg_logprob": -0.31}]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -162,6 +163,8 @@ def release_cases():
                     logged = json.loads(handle.readline())
                 check("it is logged for the client", logged["text"], "yes, go ahead")
                 check("with the clip's loudness (digital silence)", logged["rms_dbfs"], -120.0)
+                check("with Whisper's segment scores", logged["segments"],
+                      [{"no_speech_prob": 0.02, "avg_logprob": -0.31}])
                 check("and no notification doubles it", NOTIFIED, [])
             check(f"the {label} clip is deleted", os.path.exists(ear.CLIP), False)
 

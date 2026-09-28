@@ -3,7 +3,8 @@
     run by hk47-ear.service on the warehouse host; by hand:
     docker exec -d omnivoice /opt/conda/bin/python3 /root/.omnivoice/ear/hk47-ear-server.py
 
-    POST /hear  <audio/wav body>  -> {"text": "...", "seconds": 0.21}
+    POST /hear  <audio/wav body>  -> {"text": "...", "seconds": 0.21,
+                                      "segments": [{"no_speech_prob": 0.02, "avg_logprob": -0.31}]}
     GET  /health                  -> {"ok": true}
 
 Master ruled push-to-talk on 2026-09-28 over the wake-word stack: a key held
@@ -73,7 +74,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
         finally:
             os.unlink(path)
-        return self._json(200, {"text": result["text"].strip(),
+        # Whisper already drops a segment above 0.6 no-speech AND below -1.0 logprob,
+        # and "Thank you." on a silent press got past both (2026-09-28). The scores go
+        # back so the desk can measure where its own line belongs.
+        segments = [{"no_speech_prob": round(seg["no_speech_prob"], 3),
+                     "avg_logprob": round(seg["avg_logprob"], 3)} for seg in result["segments"]]
+        return self._json(200, {"text": result["text"].strip(), "segments": segments,
                                 "seconds": round(time.perf_counter() - start, 2)})
 
     def log_message(self, fmt, *args):
