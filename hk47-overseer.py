@@ -26,6 +26,15 @@ THE EXCHANGE, AS MASTER RULED IT (2026-09-27, 2026-09-28)
   5. No, silence, or anything unclear: the batch is carried, unspoken, and asked
      about again together with the next arrival. The sprite's badge still counts
      it. Wiring a refusal into Archon or the sprite is open (Master, 2026-09-28).
+  6. After the droid has spoken, it listens ANSWER_SECONDS at a time for the
+     queue grammar, and only then (Master, 2026-09-28: only in an exchange):
+       what's waiting   the whole queue, not only this batch
+       tell me more     the current item: its session's last message, condensed
+                        by Opus into a spoken sentence or two (Master's ruling)
+       next             the next item's line
+       done             dismiss the current item, as `hk47-queue.py done`
+       later            stop; what was not dismissed is carried and asked again
+     Silence ends it with nothing carried: he heard it and chose not to act.
 
 Every line is rendered once and cached on the desk. An item's line starts
 rendering the moment it arrives, so it is ready when the window closes rather
@@ -79,7 +88,7 @@ FADE_SECONDS = 3
 FADE_STEPS = 15
 POLL_SECONDS = 0.5
 
-STOCK = ("ask", "ask_game", "meantime")
+STOCK = ("ask", "ask_game", "meantime", "dismissed", "last")
 ARRIVING = ("question", "permission", "waiting")   # the badge hook's raise flags
 
 # Whisper's inventions on a near-silent clip, measured 2026-09-28 ("Thank you.").
@@ -94,6 +103,18 @@ NO = {"no", "nope", "nah", "not", "later", "after", "wait", "busy", "don't", "do
       "hush", "negative", "negatory"}
 YES = {"yes", "yeah", "yep", "yup", "sure", "go", "ok", "okay", "now", "proceed", "speak", "affirmative",
        "fine", "please", "talk", "tell"}
+# The queue grammar, checked in this order, so "no more" is later and "what's
+# next" is next. Words and not phrases: Whisper punctuates and pads freely.
+GRAMMAR = (("later", {"later", "enough", "stop", "quiet", "hush", "no", "not", "nope", "bye"}),
+           ("done", {"done", "dismiss", "dismissed", "finished", "handled", "clear"}),
+           ("next", {"next", "skip", "another"}),
+           ("more", {"more", "detail", "details", "explain", "elaborate"}),
+           ("waiting", {"waiting", "queue", "what's", "whats", "list"}))
+SUMMARISE_SECONDS = 60
+SUMMARISE = ("You condense a coding session's last message into one or two short spoken sentences for "
+             "text-to-speech, in HK-47's voice, each starting with a declared qualifier such as Statement: "
+             "or Warning:. Say where the work stands and what it needs from him. No markdown, no lists, no "
+             "paths or code, few commas, never the word master. Output only the sentences.")
 NUMBERS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
 
 
@@ -113,6 +134,11 @@ def answer(text):
     if words & YES:
         return "yes"
     return None
+
+
+def command(text):
+    words = set(re.findall(r"[a-z']+", (text or "").lower()))
+    return next((verb for verb, vocab in GRAMMAR if words & vocab), None)
 
 
 def hallucinated(record):
@@ -298,6 +324,26 @@ class Hands:
     def notify(self, line):
         ear.notify(line)
 
+    def summarise(self, item):
+        """The item's recorded text, condensed by Opus. No hooks, so the call is
+        never itself a queue arrival; no tools; nothing persisted."""
+        account = item.get("account") or hkq.ACCOUNTS[0]
+        env = os.environ | {"CLAUDE_CONFIG_DIR": str(hkq.config_dir(account))}
+        proc = subprocess.run(["claude", "-p", "--model", "opus", "--tools", "", "--no-session-persistence",
+                               "--settings", '{"disableAllHooks": true}', "--system-prompt", SUMMARISE],
+                              input=f"Project {item['subject']}, its session's last message:\n\n{item['text']}",
+                              capture_output=True, text=True, timeout=SUMMARISE_SECONDS, env=env,
+                              cwd=desktop.STATE_DIR if os.path.isdir(desktop.STATE_DIR) else None)
+        said = " ".join(proc.stdout.split())
+        if proc.returncode or not said:
+            raise OSError(f"summariser exit {proc.returncode}: {proc.stderr.strip()[:200]}")
+        return said
+
+    def dismiss(self, item):
+        hkq.append(hkq.EVENTS, {"t": time.strftime("%Y-%m-%dT%H:%M:%S"), "session": item["session"],
+                                "event": "Dismiss", "flag": "clear", "account": item.get("account", ""),
+                                "cwd": item.get("cwd", ""), "text": "", "matrix": False})
+
 
 def read_peon_record():
     return list(desktop.read_json(PEON_RECORD, {}).get("paused", []))
@@ -420,6 +466,7 @@ class Overseer:
             # the class line said one fact twice in the first trial.
             if not self.say(body_audio):
                 return "interrupted", set()
+            spoken = list(items)
             while self.hands.voice_on():
                 new = set(self.take_events()) - heard
                 self.pending = {s: t for s, t in self.pending.items() if s not in new}
@@ -429,6 +476,7 @@ class Overseer:
                 if not fresh:
                     break
                 heard |= {i["session"] for i in fresh}
+                spoken += fresh
                 try:
                     lines = [self.hands.render(self.pick(self.pool["meantime"])),
                              self.hands.render(compose(fresh, self.pool, self.pick))]
@@ -436,20 +484,59 @@ class Overseer:
                     break
                 if not all(self.say(line) for line in lines):
                     return "interrupted", set()
-            return "spoken", set()
+            return self.follow(spoken, ctx)
         finally:
             self.hands.resume()
+
+    def follow(self, items, ctx):
+        """The queue grammar, after the droid has spoken. `items` is the order
+        they were spoken in; the current item is the first not yet passed."""
+        cursor = 0
+        while self.hands.voice_on():
+            verb = self.listen(command)
+            if verb is None:
+                return "spoken", set()
+            if verb == "later":
+                return "declined", {i["session"] for i in items[cursor:]}
+            if verb == "waiting":
+                items, cursor = self.waiting({i["session"] for i in self.hands.items(ctx)}, ctx), 0
+                lines = [compose(items, self.pool, self.pick)] if items else [self.pick(self.pool["last"])]
+            elif cursor >= len(items):
+                lines = [self.pick(self.pool["last"])]
+            elif verb == "more":
+                try:
+                    lines = [self.hands.summarise(items[cursor])]
+                except (OSError, subprocess.SubprocessError) as exc:
+                    self.hands.notify(f"Statement: I could not condense {items[cursor]['subject']}: {exc}")
+                    continue
+            else:
+                lines = []
+                if verb == "done":
+                    self.hands.dismiss(items.pop(cursor))
+                    lines.append(self.pick(self.pool["dismissed"]))
+                else:
+                    cursor += 1
+                lines.append(compose([items[cursor]], self.pool, self.pick) if cursor < len(items)
+                             else self.pick(self.pool["last"]))
+            try:
+                audio = [self.hands.render(line) for line in lines]
+            except (urllib.error.URLError, OSError):
+                self.hands.notify("Statement: My mouth failed mid-render, so the queue waits in writing.")
+                return "mute", set()
+            if not all(self.say(a) for a in audio):
+                return "interrupted", set()
+        return "spoken", set()
 
     def say(self, audio):
         return self.hands.voice_on() and self.hands.play(audio)
 
-    def listen(self):
+    def listen(self, parse=answer):
         deadline = self.clock() + ANSWER_SECONDS
         while self.clock() < deadline or self.hands.ear_recording():
             for record in self.hands.heard_since_mark():
                 if hallucinated(record):
                     continue
-                verdict = answer(record.get("text"))
+                verdict = parse(record.get("text"))
                 if verdict:
                     return verdict
             self.sleep(0.2)

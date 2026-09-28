@@ -48,6 +48,11 @@ def policy_cases():
     check("an old record with no loudness is doubted", ov.hallucinated({"text": "Thank you."}), True)
     check("a quiet 'yes' still counts", ov.hallucinated({"text": "yes", "rms_dbfs": -60.0}), False)
 
+    for text, want in (("What's waiting?", "waiting"), ("Tell me more.", "more"), ("Next.", "next"),
+                       ("What's next?", "next"), ("Done.", "done"), ("Later.", "later"), ("No more.", "later"),
+                       ("Not yet.", "later"), ("Thank you.", None)):
+        check(f"{text!r} is {want}", ov.command(text), want)
+
     check("a ramp ends exactly at the prior volume", ov.ramp([100, 200], 4),
           [[25, 50], [50, 100], [75, 150], [100, 200]])
 
@@ -112,8 +117,17 @@ class FakeHands:
         return self.voice
 
     def items(self, ctx):
-        return [{"session": s, "subject": subj, "category": cat, "stale": False}
+        return [{"session": s, "subject": subj, "category": cat, "stale": False, "text": f"{subj} said things"}
                 for s, (subj, cat) in self.table.items()]
+
+    def summarise(self, item):
+        if item["subject"] == "broken":
+            raise OSError("summariser exit 1")
+        return f"Statement: {item['text']}."
+
+    def dismiss(self, item):
+        self.log.append(f"dismiss {item['session']}")
+        self.table.pop(item["session"], None)
 
     def prepare(self, text):
         self.prepared.append(text)
@@ -180,7 +194,7 @@ def exchange_cases():
     events.push("s-hk47")
     hands.heard = [{"text": "Yes.", "rms_dbfs": -25.0}]
     check("a yes is spoken", run_until(o, clock), "spoken")
-    check("closed after 10s of quiet", clock.now, 10.0)
+    check("closed after 10s of quiet, then 15s awaiting a command", round(clock.now), 25)
     check("the ask, then the class line, and no opener", hands.played,
           ["Query: Can I bother you?", "Statement: HK47 has finished and awaits your inspection."])
     check("the line began rendering on arrival", hands.prepared[0],
@@ -295,6 +309,64 @@ def meantime_cases():
     check("said in writing instead", len(hands.notified), 1)
 
 
+def grammar_cases():
+    print("  queue grammar")
+
+    def say(o, hands, clock, *said):
+        hands.heard = [{"text": "Yes.", "rms_dbfs": -25.0}]
+        replies = list(said)
+
+        def feed(_audio):
+            if replies:
+                hands.heard.append({"text": replies.pop(0), "rms_dbfs": -25.0})
+        hands.on_play = feed
+        return run_until(o, clock, 400)
+
+    o, hands, events, clock = rig(table=TABLE)
+    events.push("s-hk47")
+    events.push("s-archon")
+    check("tell me more condenses the current item", say(o, hands, clock, None, "Tell me more."), "spoken")
+    check("from its recorded text", hands.played[-1], "Statement: HK47 said things.")
+
+    o, hands, events, clock = rig(table=TABLE)
+    events.push("s-hk47")
+    events.push("s-archon")
+    say(o, hands, clock, None, "Next.", "Next.")
+    check("next walks the batch, then says it is the last", hands.played[2:],
+          ["Query: Will you take a question from Archon?", "Statement: Nothing else waits on you."])
+
+    o, hands, events, clock = rig(table=TABLE)
+    events.push("s-hk47")
+    events.push("s-archon")
+    say(o, hands, clock, None, "Done.")
+    check("done dismisses the current item", hands.log[2], "dismiss s-hk47")
+    check("acknowledges it, then names the next", hands.played[2:],
+          ["Statement: Dismissed.", "Query: Will you take a question from Archon?"])
+
+    o, hands, events, clock = rig(table=TABLE)
+    events.push("s-hk47")
+    say(o, hands, clock, None, "What's waiting?")
+    check("what's waiting covers the whole queue, not the batch", hands.played[-1],
+          "Query: Where do we start with HK47 and Archon and Library?")
+
+    o, hands, events, clock = rig(table=TABLE)
+    events.push("s-hk47")
+    events.push("s-archon")
+    check("later declines", say(o, hands, clock, None, "Next.", "Later."), "declined")
+    check("carrying only what was not yet passed", o.carried, {"s-archon"})
+
+    o, hands, events, clock = rig(table={"s-x": ("broken", "t_done")})
+    events.push("s-x")
+    check("a failed summary is said in writing", say(o, hands, clock, None, "Tell me more."), "spoken")
+    check("and the exchange carries on", len(hands.notified), 1)
+
+    o, hands, events, clock = rig(table=TABLE)
+    events.push("s-hk47")
+    say(o, hands, clock, None, "Thank you.")
+    check("a hallucination is not a command", hands.played[-1],
+          "Statement: HK47 has finished and awaits your inspection.")
+
+
 def voice_cases():
     print("  voice flag")
     with tempfile.TemporaryDirectory() as tmp:
@@ -343,6 +415,7 @@ def main():
     exchange_cases()
     refusal_cases()
     meantime_cases()
+    grammar_cases()
     voice_cases()
     peon_cases()
     bad = sum(1 for _name, ok in RESULTS if not ok)

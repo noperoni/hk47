@@ -15,7 +15,7 @@
 #   0.08s, tighter than the bake-off's 0.12s.
 # - NO OPENER (2026-09-28, first live trial): the ask already opens the exchange,
 #   and an opener beside the class line said one fact twice.
-# Stock classes (ask, ask_game, meantime) carry no placeholder and are
+# Stock classes (ask, ask_game, meantime, dismissed, last) carry no placeholder and are
 # cached on the desk. Live classes carry {project}, {list} or {n}. ask_game is
 # the ask in the game class (hk47-desktop.py), split out 2026-09-28.
 ask	Query: Can I bother you?
@@ -27,6 +27,13 @@ meantime	Observation: While we were busy, others joined the queue.
 meantime	Statement: More things waited while we talked.
 meantime	Statement: The queue did not stay empty in the meantime.
 meantime	Observation: The queue has grown in the meantime.
+# The queue grammar's own replies (2026-09-28), stock and cached. DRAFT, unauditioned.
+dismissed	Statement: Dismissed.
+dismissed	Statement: It is off the queue.
+dismissed	Statement: Consider it forgotten.
+last	Statement: Nothing else waits on you.
+last	Observation: The queue is empty for once.
+last	Statement: That was the last of them.
 q_design	Query: Will you take a question from {project}?
 q_design	Statement: {project} wants your decision.
 q_design	Statement: {project} is politely asking for you for once.
