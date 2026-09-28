@@ -96,13 +96,12 @@ ROLLS = 1
 STOCK = ("ask", "ask_game", "meantime", "dismissed", "last")
 ARRIVING = ("question", "permission", "waiting")   # the badge hook's raise flags
 
-# Whisper's inventions on a near-silent clip, measured 2026-09-28 ("Thank you.").
-HALLUCINATIONS = {"thank you", "thanks for watching", "thank you for watching", "thank you very much",
-                  "you", "bye"}
-# ponytail: measured 2026-09-28 on Master's mic, silence -49.3 and -60.1, speech
-# -41.4 to -45.3: a 4 dB gap, and one silent press read -35.2. A stopgap until the
-# ear returns Whisper's own no_speech_prob, which is the real test.
-QUIET_DBFS = -47.0
+# Measured 2026-09-28 on Master's mic: three silent presses of 1.8-3.1s, each
+# heard as "Thank you.", scored no_speech_prob 0.835-0.892; eight spoken presses
+# scored 0.075-0.237. Loudness failed first: speech fell to -49.5 dBFS, below the
+# old -47 gate. Whisper's own filter misses these because it also demands an
+# avg_logprob under -1.0, and the inventions scored -0.79 to -0.93.
+SILENT_ABOVE = 0.5
 
 NO = {"no", "nope", "nah", "not", "later", "after", "wait", "busy", "don't", "dont", "stop", "quiet",
       "hush", "negative", "negatory"}
@@ -153,9 +152,12 @@ def sentences(text):
 
 
 def hallucinated(record):
-    said = " ".join(re.findall(r"[a-z']+", (record.get("text") or "").lower()))
-    loud = record.get("rms_dbfs")
-    return said in HALLUCINATIONS and (loud is None or loud < QUIET_DBFS)
+    """Whisper speaking over silence: every segment it kept is probably no speech.
+    A record without scores, from an ear older than the scores, is taken at its word."""
+    segments = record.get("segments")
+    if segments is None:
+        return False
+    return all(seg.get("no_speech_prob", 0) > SILENT_ABOVE for seg in segments)
 
 
 def load_pool(path=LINES):

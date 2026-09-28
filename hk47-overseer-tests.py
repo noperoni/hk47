@@ -43,10 +43,12 @@ def policy_cases():
                        ("After this one.", "no"), ("No.", "no"), ("What was that?", None), ("", None)):
         check(f"{text!r} is {want}", ov.answer(text), want)
 
-    check("a quiet 'Thank you.' is Whisper's", ov.hallucinated({"text": "Thank you.", "rms_dbfs": -62.0}), True)
-    check("a loud 'Thank you.' is Master's", ov.hallucinated({"text": "Thank you.", "rms_dbfs": -24.0}), False)
-    check("an old record with no loudness is doubted", ov.hallucinated({"text": "Thank you."}), True)
-    check("a quiet 'yes' still counts", ov.hallucinated({"text": "yes", "rms_dbfs": -60.0}), False)
+    silence = {"text": "Thank you.", "segments": [{"no_speech_prob": 0.835, "avg_logprob": -0.795}]}
+    check("a 'Thank you.' over silence is Whisper's", ov.hallucinated(silence), True)
+    check("a quiet but real 'later' counts",
+          ov.hallucinated({"text": "later", "segments": [{"no_speech_prob": 0.102, "avg_logprob": -0.86}]}), False)
+    check("nothing kept is nothing said", ov.hallucinated({"text": "", "segments": []}), True)
+    check("a record with no scores is taken at its word", ov.hallucinated({"text": "Thank you."}), False)
 
     for text, want in (("What's waiting?", "waiting"), ("Tell me more.", "more"), ("Next.", "next"),
                        ("What's next?", "next"), ("Done.", "done"), ("Later.", "later"), ("No more.", "later"),
@@ -241,9 +243,9 @@ def exchange_cases():
     check("a game gets the game ask", hands.played[0], "Query: A word, when you have finished killing things?")
 
     o, hands, events, clock = rig()
-    hands.heard = [{"text": "Thank you.", "rms_dbfs": -60.0}, {"text": "Yes.", "rms_dbfs": -25.0}]
+    hands.heard = [{"text": "Yes, no.", "segments": [{"no_speech_prob": 0.89}]}, {"text": "Yes.", "rms_dbfs": -25.0}]
     events.push("s-hk47")
-    check("Whisper's quiet 'Thank you.' is skipped, the yes counts", run_until(o, clock), "spoken")
+    check("a no over silence is skipped, the yes counts", run_until(o, clock), "spoken")
 
 
 def refusal_cases():
@@ -321,7 +323,8 @@ def grammar_cases():
 
         def feed(_audio):
             if replies:
-                hands.heard.append({"text": replies.pop(0), "rms_dbfs": -25.0})
+                reply = replies.pop(0)
+                hands.heard.append(reply if isinstance(reply, dict) else {"text": reply, "rms_dbfs": -25.0})
         hands.on_play = feed
         return run_until(o, clock, 400)
 
@@ -368,8 +371,8 @@ def grammar_cases():
 
     o, hands, events, clock = rig(table=TABLE)
     events.push("s-hk47")
-    say(o, hands, clock, None, "Thank you.")
-    check("a hallucination is not a command", hands.played[-1],
+    say(o, hands, clock, None, {"text": "Next.", "segments": [{"no_speech_prob": 0.89}]})
+    check("a command heard over silence is not a command", hands.played[-1],
           "Statement: HK47 has finished and awaits your inspection.")
 
 
