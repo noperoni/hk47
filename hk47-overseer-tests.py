@@ -53,6 +53,9 @@ def policy_cases():
                        ("Not yet.", "later"), ("Thank you.", None)):
         check(f"{text!r} is {want}", ov.command(text), want)
 
+    check("a summary splits at each qualifier", ov.sentences("Statement: Done. Warning: It is v2.1 now. "),
+          ["Statement: Done.", "Warning: It is v2.1 now."])
+
     check("a ramp ends exactly at the prior volume", ov.ramp([100, 200], 4),
           [[25, 50], [50, 100], [75, 150], [100, 200]])
 
@@ -123,7 +126,7 @@ class FakeHands:
     def summarise(self, item):
         if item["subject"] == "broken":
             raise OSError("summariser exit 1")
-        return f"Statement: {item['text']}."
+        return f"Statement: {item['text']}. Warning: Nothing else."
 
     def dismiss(self, item):
         self.log.append(f"dismiss {item['session']}")
@@ -326,7 +329,10 @@ def grammar_cases():
     events.push("s-hk47")
     events.push("s-archon")
     check("tell me more condenses the current item", say(o, hands, clock, None, "Tell me more."), "spoken")
-    check("from its recorded text", hands.played[-1], "Statement: HK47 said things.")
+    check("from its recorded text, a sentence at a time", hands.played[-2:],
+          ["Statement: HK47 said things.", "Warning: Nothing else."])
+    check("every sentence queued on the mouth before the first plays", hands.prepared[-2:],
+          ["Statement: HK47 said things.", "Warning: Nothing else."])
 
     o, hands, events, clock = rig(table=TABLE)
     events.push("s-hk47")

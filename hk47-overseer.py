@@ -114,7 +114,8 @@ SUMMARISE_SECONDS = 60
 SUMMARISE = ("You condense a coding session's last message into one or two short spoken sentences for "
              "text-to-speech, in HK-47's voice, each starting with a declared qualifier such as Statement: "
              "or Warning:. Say where the work stands and what it needs from him. No markdown, no lists, no "
-             "paths or code, few commas, never the word master. Output only the sentences.")
+             "paths or code, no commas at all since the voice stretches every one, never the word master. "
+             "Output only the sentences.")
 NUMBERS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
 
 
@@ -139,6 +140,11 @@ def answer(text):
 def command(text):
     words = set(re.findall(r"[a-z']+", (text or "").lower()))
     return next((verb for verb, vocab in GRAMMAR if words & vocab), None)
+
+
+def sentences(text):
+    """Split at a full stop followed by a capital, which is where every qualifier starts."""
+    return [part for part in re.split(r"(?<=[.?!])\s+(?=[A-Z])", text.strip()) if part]
 
 
 def hallucinated(record):
@@ -505,7 +511,7 @@ class Overseer:
                 lines = [self.pick(self.pool["last"])]
             elif verb == "more":
                 try:
-                    lines = [self.hands.summarise(items[cursor])]
+                    lines = sentences(self.hands.summarise(items[cursor]))
                 except (OSError, subprocess.SubprocessError) as exc:
                     self.hands.notify(f"Statement: I could not condense {items[cursor]['subject']}: {exc}")
                     continue
@@ -518,13 +524,18 @@ class Overseer:
                     cursor += 1
                 lines.append(compose([items[cursor]], self.pool, self.pick) if cursor < len(items)
                              else self.pick(self.pool["last"]))
-            try:
-                audio = [self.hands.render(line) for line in lines]
-            except (urllib.error.URLError, OSError):
-                self.hands.notify("Statement: My mouth failed mid-render, so the queue waits in writing.")
-                return "mute", set()
-            if not all(self.say(a) for a in audio):
-                return "interrupted", set()
+            # Streamed a sentence at a time: all queued on the mouth now, each
+            # played as it lands, so the first is heard while the rest render.
+            for line in lines:
+                self.hands.prepare(line)
+            for line in lines:
+                try:
+                    audio = self.hands.render(line)
+                except (urllib.error.URLError, OSError):
+                    self.hands.notify("Statement: My mouth failed mid-render, so the queue waits in writing.")
+                    return "mute", set()
+                if not self.say(audio):
+                    return "interrupted", set()
         return "spoken", set()
 
     def say(self, audio):
