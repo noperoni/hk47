@@ -1,0 +1,27 @@
+# The mouth (PERS-2) on the warehouse: IndexTTS 2.5 on ref13 inside the
+# omnivoice container, loopback 3901. A system unit on the HOST, supervising a
+# foreground `docker exec`:
+#
+#   sudo cp hk47-mouth.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now hk47-mouth
+#
+# Same shape as deploy/ear/hk47-ear.service, and for the same reason start and
+# stop clear any server left inside the container: killing the docker exec
+# client does not kill what it started.
+
+[Unit]
+Description=HK-47 mouth: IndexTTS server in omnivoice (loopback 3901)
+Requires=docker.service
+After=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker exec omnivoice pkill -f hk47-mouth-server.py
+ExecStart=/usr/bin/docker exec -w /root/.omnivoice/engines/indextts2/index-tts-2.5 omnivoice /root/.omnivoice/engines/indextts2/index-tts-2.5/.venv/bin/python -u /root/.omnivoice/mouth/hk47-mouth-server.py
+ExecStop=-/usr/bin/docker exec omnivoice pkill -f hk47-mouth-server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

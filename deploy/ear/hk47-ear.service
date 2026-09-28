@@ -1,0 +1,28 @@
+# The ear (PERS-11) on the warehouse: Whisper small.en inside the omnivoice
+# container, loopback 3902. A system unit on the HOST, supervising a
+# foreground `docker exec`:
+#
+#   sudo cp hk47-ear.service /etc/systemd/system/ && sudo systemctl daemon-reload
+#   sudo systemctl enable --now hk47-ear
+#
+# A container restart kills the server, docker exec returns, and systemd
+# starts it again once the container is back. Killing the docker exec client
+# does NOT kill the process inside the container, so start and stop both clear
+# any server left behind by hand (`docker exec -d`) or by a previous run.
+
+[Unit]
+Description=HK-47 ear: Whisper push-to-talk server in omnivoice (loopback 3902)
+Requires=docker.service
+After=docker.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/bin/docker exec omnivoice pkill -f hk47-ear-server.py
+ExecStart=/usr/bin/docker exec omnivoice /opt/conda/bin/python3 -u /root/.omnivoice/ear/hk47-ear-server.py
+ExecStop=-/usr/bin/docker exec omnivoice pkill -f hk47-ear-server.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

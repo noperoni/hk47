@@ -1,5 +1,6 @@
 """The mouth, PERS-2: IndexTTS 2.5 on ref13 held warm, behind the pause gate.
 
+    run by hk47-mouth.service on the warehouse host; by hand:
     docker exec omnivoice bash -lc \
       'cd /root/.omnivoice/engines/indextts2/index-tts-2.5 && \
        .venv/bin/python /root/.omnivoice/mouth/hk47-mouth-server.py'

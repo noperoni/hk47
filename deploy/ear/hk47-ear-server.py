@@ -1,5 +1,6 @@
 """The ear, PERS-11: Whisper small.en held warm on the 3090, push-to-talk only.
 
+    run by hk47-ear.service on the warehouse host; by hand:
     docker exec -d omnivoice /opt/conda/bin/python3 /root/.omnivoice/ear/hk47-ear-server.py
 
     POST /hear  <audio/wav body>  -> {"text": "...", "seconds": 0.21}
@@ -18,7 +19,7 @@ clip and 1.5 GB of VRAM (2026-09-28). /opt/conda already holds whisper with a
 CUDA torch and the small.en weights, so nothing is installed.
 
 LOOPBACK ONLY, for the mouth's reason: the container runs --network host. The
-desktop reaches it through `ssh -L 3902:127.0.0.1:3902 warehouse`. Clips are
+desktop reaches it through hk47-voice-tunnel.service, an `ssh -L 3902:...`. Clips are
 written to a temp file, transcribed and deleted; nothing Master says is kept.
 """
 

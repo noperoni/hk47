@@ -1,0 +1,24 @@
+# The desk's way to the mouth (3901) and the ear (3902) on the warehouse. Both
+# servers bind loopback only, so this tunnel is the only door. A USER unit on
+# the desk:
+#
+#   ln -s "$PWD/hk47-voice-tunnel.service" ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now hk47-voice-tunnel
+#
+# ExitOnForwardFailure makes a held port a failure rather than a tunnel that
+# forwards nothing, and the keepalives turn a dead link into an exit, so
+# Restart=always is what keeps the ears attached across drops and reboots.
+
+[Unit]
+Description=HK-47 voice tunnel: mouth 3901 and ear 3902 to the warehouse
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -L 3901:127.0.0.1:3901 -L 3902:127.0.0.1:3902 warehouse
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
