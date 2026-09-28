@@ -40,7 +40,7 @@ def policy_cases():
     check("the cap closes it at 60s regardless", ov.window_closed(0, 58, 60), True)
 
     for text, want in (("Yes.", "yes"), ("Go ahead.", "yes"), ("Now.", "yes"), ("Not now.", "no"),
-                       ("After this one.", "no"), ("No.", "no"), ("What was that?", None), ("", None)):
+                       ("After this one.", "no"), ("No.", "no"), ("All right, what's up?", "yes"), ("", None)):
         check(f"{text!r} is {want}", ov.answer(text), want)
 
     silence = {"text": "Thank you.", "segments": [{"no_speech_prob": 0.835, "avg_logprob": -0.795}]}
@@ -372,6 +372,12 @@ def grammar_cases():
     o, hands, events, clock = rig(table=TABLE)
     events.push("s-hk47")
     say(o, hands, clock, None, {"text": "Next.", "segments": [{"no_speech_prob": 0.89}]})
+    o2, hands2, events2, clock2 = rig(table=TABLE)
+    events2.push("s-hk47")
+    say(o2, hands2, clock2, None, "What did it say?", "Tell me more.")
+    check("an unknown request gets the choices, then it listens again", hands2.played[2:],
+          ["Query: More or next or done or later?", "Statement: HK47 said things.", "Warning: Nothing else."])
+
     check("a command heard over silence is not a command", hands.played[-1],
           "Statement: HK47 has finished and awaits your inspection.")
 

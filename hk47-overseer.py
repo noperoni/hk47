@@ -23,8 +23,10 @@ THE EXCHANGE, AS MASTER RULED IT (2026-09-27, 2026-09-28)
      projects wait; no opener, the question already opened it. Anything that arrived meanwhile is spoken after a
      "meantime" line, in a loop, until nothing new is left. Then resume, fading
      back to the prior volume over FADE_SECONDS.
-  5. No, silence, or anything unclear: the batch is carried, unspoken, and asked
-     about again together with the next arrival. The sprite's badge still counts
+  5. Any speech but a no is a yes (Master, 2026-09-28): he pressed the key to
+     answer, so "all right, what's up" consents as well as "yes" does. A no or
+     silence: the batch is carried, unspoken, and asked about again together
+     with the next arrival. The sprite's badge still counts
      it. Wiring a refusal into Archon or the sprite is open (Master, 2026-09-28).
   6. After the droid has spoken, it listens ANSWER_SECONDS at a time for the
      queue grammar, and only then (Master, 2026-09-28: only in an exchange):
@@ -34,6 +36,7 @@ THE EXCHANGE, AS MASTER RULED IT (2026-09-27, 2026-09-28)
        next             the next item's line
        done             dismiss the current item, as `hk47-queue.py done`
        later            stop; what was not dismissed is carried and asked again
+     Anything else is answered with the choices, and it listens again.
      Silence ends it with nothing carried: he heard it and chose not to act.
 
 Every line is rendered once and cached on the desk. An item's line starts
@@ -93,7 +96,7 @@ POLL_SECONDS = 0.5
 # the one roll, and its verdict goes to the journal as the record of how often.
 ROLLS = 1
 
-STOCK = ("ask", "ask_game", "meantime", "dismissed", "last")
+STOCK = ("ask", "ask_game", "meantime", "dismissed", "last", "unheard")
 ARRIVING = ("question", "permission", "waiting")   # the badge hook's raise flags
 
 # Measured 2026-09-28 on Master's mic: three silent presses of 1.8-3.1s, each
@@ -105,8 +108,6 @@ SILENT_ABOVE = 0.5
 
 NO = {"no", "nope", "nah", "not", "later", "after", "wait", "busy", "don't", "dont", "stop", "quiet",
       "hush", "negative", "negatory"}
-YES = {"yes", "yeah", "yep", "yup", "sure", "go", "ok", "okay", "now", "proceed", "speak", "affirmative",
-       "fine", "please", "talk", "tell"}
 # The queue grammar, checked in this order, so "no more" is later and "what's
 # next" is next. Words and not phrases: Whisper punctuates and pads freely.
 GRAMMAR = (("later", {"later", "enough", "stop", "quiet", "hush", "no", "not", "nope", "bye"}),
@@ -131,14 +132,12 @@ def window_closed(first, last, now):
 
 
 def answer(text):
-    """"yes", "no", or None for anything that is neither. A no wins a tie, so
-    "not now" is a no and "now" alone is a yes."""
+    """"no" for any refusal word, "yes" for any other speech, None for none.
+    A no wins a tie, so "not now" is a no and "now" alone is a yes."""
     words = set(re.findall(r"[a-z']+", (text or "").lower()))
     if words & NO:
         return "no"
-    if words & YES:
-        return "yes"
-    return None
+    return "yes" if words else None
 
 
 def command(text):
@@ -508,7 +507,7 @@ class Overseer:
         they were spoken in; the current item is the first not yet passed."""
         cursor = 0
         while self.hands.voice_on():
-            verb = self.listen(command)
+            verb = self.listen(lambda text: command(text) or "unheard")
             if verb is None:
                 return "spoken", set()
             if verb == "later":
@@ -516,6 +515,8 @@ class Overseer:
             if verb == "waiting":
                 items, cursor = self.waiting({i["session"] for i in self.hands.items(ctx)}, ctx), 0
                 lines = [compose(items, self.pool, self.pick)] if items else [self.pick(self.pool["last"])]
+            elif verb == "unheard":
+                lines = [self.pick(self.pool["unheard"])]
             elif cursor >= len(items):
                 lines = [self.pick(self.pool["last"])]
             elif verb == "more":
