@@ -120,6 +120,8 @@ SUMMARISE = ("You condense a coding session's last message into one or two short
              "text-to-speech, in HK-47's voice, each starting with a declared qualifier such as Statement: "
              "or Warning:. Say where the work stands and what it needs from him. No markdown, no lists, no "
              "paths or code, no commas at all since the voice stretches every one, never the word master. "
+             "Avoid words spelled one way and said two ways (live, read, lead, close, wind, tear, present): the "
+             "voice guesses the wrong one, so say running or active rather than live. "
              "Output only the sentences.")
 NUMBERS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
 
