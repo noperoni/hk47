@@ -87,6 +87,11 @@ ANSWER_SECONDS = 15
 FADE_SECONDS = 3
 FADE_STEPS = 15
 POLL_SECONDS = 0.5
+# One render, no re-rolls (Master, 2026-09-28): a roll is 8-12s and the gate took
+# up to four, 54.7s for two sentences. A bad render is heard and fixed at the
+# source (Jev, voice training), not paid for on every line. The gate still judges
+# the one roll, and its verdict goes to the journal as the record of how often.
+ROLLS = 1
 
 STOCK = ("ask", "ask_game", "meantime", "dismissed", "last")
 ARRIVING = ("question", "permission", "waiting")   # the badge hook's raise flags
@@ -255,10 +260,12 @@ class Hands:
         key = CACHE / f"{hashlib.sha1(text.encode()).hexdigest()[:16]}.wav"
         if key.exists():
             return key.read_bytes()
-        request = urllib.request.Request(f"{MOUTH_URL}/say", data=json.dumps({"text": text}).encode(),
+        request = urllib.request.Request(f"{MOUTH_URL}/say", data=json.dumps({"text": text, "rolls": ROLLS}).encode(),
                                          headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(request, timeout=120) as reply:
             audio = reply.read()
+            print(f"mouth: gate {reply.headers.get('X-HK47-Gate')} in {reply.headers.get('X-HK47-Seconds')}s: {text}",
+                  flush=True)
         CACHE.mkdir(parents=True, exist_ok=True)
         key.write_bytes(audio)
         return audio
