@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "hk47.voice",
+  "name": "HK-47 Voice",
+  "version": "1.0.0",
+  "author": "HK47",
+  "license": "MIT",
+  "description": "Whether the HK-47 overseer may speak the queue aloud, and the switch that stops it",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "HK-47 Voice",
+    "description": "Lit while the droid may speak the queue; a click silences him mid-sentence and leaves the queue in writing",
+    "category": "Audio",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

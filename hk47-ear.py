@@ -26,14 +26,18 @@ WHAT IT GUARDS
     discarded rather than sent to Whisper to hallucinate from.
 
 Transcripts go to heard.jsonl in the runtime dir, wiped at reboot, for the
-PERS-5 client to consume. Nothing Master says is kept on disk past that.
+PERS-5 client (hk47-overseer.py) to consume, with the clip's loudness beside
+them. Nothing Master says is kept on disk past that.
 
 The ear is reached through `ssh -N -L 3902:127.0.0.1:3902 warehouse`.
 """
 
 import argparse
+import array
 import importlib
+import io
 import json
+import math
 import os
 import signal
 import subprocess
@@ -122,6 +126,20 @@ def clip_seconds(path):
         return 0.0
 
 
+def rms_dbfs(audio):
+    """Loudness of a 16-bit PCM WAV, so the client can tell a quiet clip that
+    Whisper filled with "Thank you." from one Master actually spoke into."""
+    try:
+        with wave.open(io.BytesIO(audio)) as w:
+            samples = array.array("h", w.readframes(w.getnframes()))
+    except (EOFError, wave.Error):
+        return None
+    if not samples:
+        return None
+    rms = math.sqrt(sum(s * s for s in samples) / len(samples))
+    return round(20 * math.log10(rms / 32768), 1) if rms else -120.0
+
+
 def notify(line):
     argv = ["notify-send", "-a", "HK-47", "-u", "low"]
     icon = desktop.find_icon()
@@ -180,12 +198,10 @@ def verb_release(_args):
         return desktop.emit({"error": f"ear unreachable: {exc}", "tunnel": TUNNEL}, desktop.EXIT_ERROR)
 
     record = {"t": datetime.now().isoformat(timespec="seconds"), "text": heard.get("text", ""),
-              "clip_seconds": round(seconds, 2), "whisper_seconds": heard.get("seconds")}
+              "clip_seconds": round(seconds, 2), "rms_dbfs": rms_dbfs(audio),
+              "whisper_seconds": heard.get("seconds")}
     with open(HEARD, "a") as handle:
         handle.write(json.dumps(record) + "\n")
-    # ponytail: the notification is the only consumer until the PERS-5 client
-    # reads heard.jsonl; drop it then, or it doubles every exchange.
-    notify(f"Observation: I heard \"{record['text']}\"")
     return desktop.emit(record)
 
 

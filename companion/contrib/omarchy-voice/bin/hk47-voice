@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# hk47.voice bar widget: `hk47-voice status` prints Waybar-shaped JSON, and
+# `hk47-voice toggle` flips the overseer's voice flag. The plugin directory is a
+# symlink into the HK47 checkout, so the overseer is found through it.
+set -euo pipefail
+
+overseer="$(dirname "$(readlink -f "$0")")/../../../../hk47-overseer.py"
+
+case "${1:-status}" in
+  toggle) "$overseer" voice toggle >/dev/null ;;
+  status) ;;
+  *) echo "usage: hk47-voice status|toggle" >&2; exit 2 ;;
+esac
+
+if [ -e "${XDG_RUNTIME_DIR:-/tmp}/hk47/voice-off" ]; then
+  printf '{"text":"\U000F0ED4","class":"off","tooltip":"HK-47 voice OFF\\nThe queue waits in writing"}\n'
+else
+  printf '{"text":"\U000F05CB","class":"on","tooltip":"HK-47 voice ON\\nHe may ask to speak the queue"}\n'
+fi

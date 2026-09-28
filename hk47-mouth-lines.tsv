@@ -13,16 +13,16 @@
 #   joined with "and" throughout (Archon and jobhunting and Fleet), because list
 #   commas were the last protests in draft 3. The comma ceiling for the mouth is
 #   0.08s, tighter than the bake-off's 0.12s.
-# Stock classes carry no placeholder. Live classes carry {project}, {list} or {n}.
+# - NO OPENER (2026-09-28, first live trial): the ask already opens the exchange,
+#   and an opener beside the class line said one fact twice.
+# Stock classes (ask, ask_game, meantime) carry no placeholder and are
+# cached on the desk. Live classes carry {project}, {list} or {n}. ask_game is
+# the ask in the game class (hk47-desktop.py), split out 2026-09-28.
 ask	Query: Can I bother you?
 ask	Query: Have you a moment for your faithful droid?
 ask	Query: May I interrupt?
-ask	Query: A word, when you have finished killing things?
-ask	Query: Now, or after this one?
-opener	Statement: I have something for you.
-opener	Statement: A matter requires your organic judgement.
-opener	Observation: The work has stopped and is waiting on you.
-opener	Statement: Pardon the interruption, but duty calls.
+ask_game	Query: A word, when you have finished killing things?
+ask_game	Query: Now, or after this one?
 meantime	Observation: While we were busy, others joined the queue.
 meantime	Statement: More things waited while we talked.
 meantime	Statement: The queue did not stay empty in the meantime.

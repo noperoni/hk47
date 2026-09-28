@@ -28,7 +28,10 @@ he watches and plays windowed, so fullscreen detects nothing about him.
   meeting   something that is not ours holds a live capture stream
   focus     Master has declared focus mode, by voice, by a click on the
             diorama, or by `mode on` from anything else
-  ordinary  neither
+  game      a game is running (added 2026-09-27 for PERS-5): the droid may
+            speak, but the queue runs in arrival order and focus is never
+            stolen from the game
+  ordinary  none of these
 
 Meeting and focus carry the same policy today and are kept apart anyway, because
 they are different facts about the world and the table below is where they will
@@ -127,6 +130,14 @@ DEFAULT_OWN_CAPTURE_NODES = ("alsa_capture.claude", "hk47-listen")
 # (ruled 2026-09-27), so while he played the queue ran in arrival order.
 IGNORED_CAPTURE_NODES = ("StarCraft II (Retail)",)
 
+# Wine executables that run beside a game without being one, compared on the
+# lowercased basename of argv[0]. Everything under C:\windows\ is Wine's own and
+# excluded by path. Measured 2026-09-28 with StarCraft II up: Battle.net.exe,
+# Agent.exe and Proton's xalia.exe ran beside SC2_x64.exe.
+# ponytail: a named list, so a launcher not on it reads as a game; add it here.
+GAME_LAUNCHERS = ("battle.net.exe", "agent.exe", "steam.exe", "xalia.exe", "epicgameslauncher.exe",
+                  "eadesktop.exe", "galaxyclient.exe", "upc.exe", "ubisoftconnect.exe", "rockstarlauncher.exe")
+
 # The only Hyprland dispatcher this tool may ever call. Master's ruling is that
 # the tiling composition is never rearranged to let the droid talk, and a list
 # that `dispatch()` checks is a mechanism where a comment would only be a wish.
@@ -162,6 +173,7 @@ POLICY = {
     "ordinary": {"speak": True, "notify": True, "move_focus": True, "silent_acts": True},
     "meeting": {"speak": False, "notify": True, "move_focus": False, "silent_acts": True},
     "focus": {"speak": False, "notify": True, "move_focus": False, "silent_acts": True},
+    "game": {"speak": True, "notify": True, "move_focus": False, "silent_acts": True},
 }
 
 
@@ -366,6 +378,23 @@ def activewindow():
     return jrun(["hyprctl", "activewindow", "-j"]) or {}
 
 
+def processes():
+    """argv of every process we can read, from /proc."""
+    out = []
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/cmdline", "rb") as handle:
+                raw = handle.read()
+        except OSError:
+            continue
+        argv = [a.decode(errors="replace") for a in raw.split(b"\0") if a]
+        if argv:
+            out.append(argv)
+    return out
+
+
 # --- state ------------------------------------------------------------------
 
 
@@ -399,12 +428,37 @@ def unlink(path):
 # --- classification ---------------------------------------------------------
 
 
-def classify(caps, focus_mode):
+def classify(caps, focus_mode, game=None):
     if meeting_holders(caps):
         return "meeting"
     if focus_mode:
         return "focus"
+    if game:
+        return "game"
     return "ordinary"
+
+
+def game_running(argvs):
+    """The running game's executable, "steam" for a native one, or None.
+
+    Steam's `reaper SteamLaunch AppId=` wraps every launch, but also a non-Steam
+    shortcut to a launcher: measured 2026-09-28, Battle.net alone under reaper.
+    So a Wine game is known by its own .exe, and reaper counts only where there
+    is no Wine at all, which is a native Linux game.
+    """
+    steam = wine = False
+    for argv in argvs:
+        if argv[0].endswith("reaper") and "SteamLaunch" in argv:
+            steam = True
+            continue
+        path = argv[0].replace("\\", "/").lower()
+        exe = path.rsplit("/", 1)[-1]
+        if not exe.endswith(".exe"):
+            continue
+        wine = True
+        if "/windows/" not in path and exe not in GAME_LAUNCHERS:
+            return exe
+    return "steam" if steam and not wine else None
 
 
 def meeting_holders(caps):
@@ -534,7 +588,7 @@ def emit(payload, code=EXIT_OK):
 
 def gather():
     caps = captures()
-    klass = classify(caps, mode_on())
+    klass = classify(caps, mode_on(), game_running(processes()))
     return caps, klass
 
 
@@ -543,6 +597,7 @@ def verb_context(_args):
     return emit({
         "class": klass,
         "focus_mode": mode_on(),
+        "game": game_running(processes()),
         "policy": POLICY[klass],
         "captures": caps,
         "players": players(),
@@ -715,8 +770,8 @@ def verb_mode(args):
     elif args.state == "off":
         unlink(MODE_FLAG)
 
-    caps = captures()
-    return emit({"focus_mode": mode_on(), "class": classify(caps, mode_on())})
+    _caps, klass = gather()
+    return emit({"focus_mode": mode_on(), "class": klass})
 
 
 # --- entry ------------------------------------------------------------------

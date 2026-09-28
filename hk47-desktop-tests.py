@@ -102,8 +102,30 @@ def identity_cases():
 # --- classification ---------------------------------------------------------
 
 
+# argv as /proc gave it on 2026-09-28, trimmed, with StarCraft II up.
+REAPER = ["/home/u/.local/share/Steam/ubuntu12_32/reaper", "SteamLaunch", "AppId=3090274757", "--", "x"]
+WINE_SYS = [["C:\\windows\\system32\\services.exe"], ["C:\\windows\\system32\\steam.exe", "Battle.net.exe"],
+            ["\\\\?\\W:\\SteamLibrary\\steamapps\\common\\Proton - Experimental\\files\\share\\wine/../xalia/xalia.exe"]]
+LAUNCHER = [["C:\\Program Files (x86)\\Battle.net\\Battle.net.exe", "--exec=launch S2"],
+            ["C:/ProgramData/Battle.net/Agent/Agent.9775/Agent.exe"]]
+SC2 = [["C:\\Program Files (x86)\\StarCraft II\\Versions\\Base97563\\SC2_x64.exe", "-launch"]]
+
+
+def game_cases():
+    print("\n  game detection:")
+    check("no processes: no game", desktop.game_running([["/usr/bin/fish"]]), None)
+    check("Battle.net alone under reaper is not a game",
+          desktop.game_running([REAPER] + WINE_SYS + LAUNCHER), None)
+    check("SC2 beside its launcher is the game",
+          desktop.game_running([REAPER] + WINE_SYS + LAUNCHER + SC2), "sc2_x64.exe")
+    check("reaper with no Wine is a native Steam game",
+          desktop.game_running([REAPER, ["/games/native/bin/game"]]), "steam")
+    check("a Wine game outside Steam still counts",
+          desktop.game_running(WINE_SYS + SC2), "sc2_x64.exe")
+
+
 def class_cases():
-    print("\n  the three classes:")
+    print("\n  the classes:")
     check("nothing capturing, no mode: ordinary",
           desktop.classify(CAP_NONE, False), "ordinary")
     check("nothing capturing, mode on: focus",
@@ -120,11 +142,17 @@ def class_cases():
           desktop.classify(CAP_BRAVE_CORKED, False), "ordinary")
     check("a meeting outranks a declared focus mode",
           desktop.classify(CAP_BRAVE, True), "meeting")
+    check("a running game: game",
+          desktop.classify(CAP_SC2, False, "sc2_x64.exe"), "game")
+    check("focus mode outranks a game",
+          desktop.classify(CAP_NONE, True, "sc2_x64.exe"), "focus")
+    check("a meeting outranks a game",
+          desktop.classify(CAP_BRAVE, False, "sc2_x64.exe"), "meeting")
     check("every class permits silent acts",
           sorted(k for k, v in desktop.POLICY.items() if v["silent_acts"]),
-          ["focus", "meeting", "ordinary"])
-    check("only ordinary permits speech",
-          sorted(k for k, v in desktop.POLICY.items() if v["speak"]), ["ordinary"])
+          ["focus", "game", "meeting", "ordinary"])
+    check("ordinary and game permit speech",
+          sorted(k for k, v in desktop.POLICY.items() if v["speak"]), ["game", "ordinary"])
     check("only ordinary permits moving focus",
           sorted(k for k, v in desktop.POLICY.items() if v["move_focus"]), ["ordinary"])
 
@@ -358,6 +386,7 @@ def contract_cases():
 def main():
     print("hk47-desktop.py")
     identity_cases()
+    game_cases()
     class_cases()
     hush_cases()
     resume_cases()

@@ -1,0 +1,23 @@
+# The overseer's voice (PERS-5 Phase A) on the desk. A USER unit, beside the
+# voice tunnel it speaks and listens through:
+#
+#   ln -s "$PWD/hk47-overseer.service" ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now hk47-overseer
+#
+# `hk47-overseer.py voice off` silences it without stopping the unit.
+# ExecStart points at the checkout; set the path to yours.
+
+[Unit]
+Description=HK-47 overseer: the queue, spoken
+Wants=hk47-voice-tunnel.service
+After=hk47-voice-tunnel.service graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /nfs/ops-center/Personal/HK47/hk47-overseer.py run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target

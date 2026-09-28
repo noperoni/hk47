@@ -7,6 +7,7 @@ so the HTTP contract with deploy/ear/hk47-ear-server.py is exercised end to end
 without Whisper. State goes to a temp dir, never to the live runtime dir.
 """
 
+import array
 import importlib
 import io
 import json
@@ -120,8 +121,21 @@ class FakeEar(BaseHTTPRequestHandler):
         pass
 
 
+def loudness_cases():
+    print("  loudness")
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(array.array("h", [16384, -16384] * 800).tobytes())
+    check("a half-scale square wave reads -6 dBFS", ear.rms_dbfs(buf.getvalue()), -6.0)
+    check("garbage reads as unknown", ear.rms_dbfs(b"not a wav"), None)
+
+
 def release_cases():
     print("  release")
+    NOTIFIED.clear()
     with tempfile.TemporaryDirectory() as tmp:
         isolate(tmp)
         server = HTTPServer(("127.0.0.1", 0), FakeEar)
@@ -145,8 +159,10 @@ def release_cases():
                 check("it went to /hear as a wav", FakeEar.received[0][:2], ("/hear", "audio/wav"))
                 check("the whole clip was sent", FakeEar.received[0][2], 44 + 2 * 16000 * 1.5)
                 with open(ear.HEARD) as handle:
-                    check("it is logged for the client", json.loads(handle.readline())["text"],
-                          "yes, go ahead")
+                    logged = json.loads(handle.readline())
+                check("it is logged for the client", logged["text"], "yes, go ahead")
+                check("with the clip's loudness (digital silence)", logged["rms_dbfs"], -120.0)
+                check("and no notification doubles it", NOTIFIED, [])
             check(f"the {label} clip is deleted", os.path.exists(ear.CLIP), False)
 
         code, out = quiet(ear.verb_release, None)
@@ -168,6 +184,7 @@ def main():
     policy_cases()
     process_cases()
     press_cases()
+    loudness_cases()
     release_cases()
     bad = sum(1 for _name, ok in RESULTS if not ok)
     print(f"\n  {len(RESULTS)} checks, {'ALL PASS' if not bad else str(bad) + ' FAILURES'}")
