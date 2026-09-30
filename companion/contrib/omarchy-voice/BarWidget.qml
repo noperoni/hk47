@@ -6,9 +6,8 @@ import qs.Ui
 
 // The overseer's stopper (PERS-5) on the Omarchy bar. Lit while the droid may
 // speak the queue; a click silences him mid-sentence and keeps the queue in
-// writing until clicked again. Install by symlinking this directory to
-// ~/.config/omarchy/plugins/hk47.voice and adding {"id": "hk47.voice"} to the
-// bar in ~/.config/omarchy/shell.json.
+// writing until clicked again. Install with install.sh beside this file, then
+// `omarchy plugin enable hk47.voice`.
 BarWidget {
   id: root
   moduleName: "hk47.voice"

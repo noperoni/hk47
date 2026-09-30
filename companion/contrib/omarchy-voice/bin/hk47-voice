@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
 # hk47.voice bar widget: `hk47-voice status` prints Waybar-shaped JSON, and
-# `hk47-voice toggle` flips the overseer's voice flag. The plugin directory is a
-# symlink into the HK47 checkout, so the overseer is found through it.
+# `hk47-voice toggle` flips the overseer's voice flag. The installed copy finds
+# the overseer through overseer.path, written by install.sh; run from the
+# checkout, it falls back to the path relative to this script.
 set -euo pipefail
 
-overseer="$(dirname "$(readlink -f "$0")")/../../../../hk47-overseer.py"
+here="$(dirname "$(readlink -f "$0")")"
+overseer="$(cat "$here/../overseer.path" 2>/dev/null || echo "$here/../../../../hk47-overseer.py")"
+flag="${XDG_RUNTIME_DIR:-/tmp}/hk47/voice-off"
 
 case "${1:-status}" in
-  toggle) "$overseer" voice toggle >/dev/null ;;
+  toggle)
+    if [ -x "$overseer" ]; then
+      "$overseer" voice toggle >/dev/null
+    # The checkout is unreachable (NFS not mounted yet), so no overseer is
+    # speaking either: flipping the flag by hand is the whole job.
+    elif [ -e "$flag" ]; then
+      rm -f "$flag"
+    else
+      mkdir -p "$(dirname "$flag")" && touch "$flag"
+    fi ;;
   status) ;;
   *) echo "usage: hk47-voice status|toggle" >&2; exit 2 ;;
 esac
 
-if [ -e "${XDG_RUNTIME_DIR:-/tmp}/hk47/voice-off" ]; then
+if [ -e "$flag" ]; then
   printf '{"text":"\U000F0ED4","class":"off","tooltip":"HK-47 voice OFF\\nThe queue waits in writing"}\n'
 else
   printf '{"text":"\U000F05CB","class":"on","tooltip":"HK-47 voice ON\\nHe may ask to speak the queue"}\n'
