@@ -1,0 +1,16 @@
+[Unit]
+Description=Archon mTLS gate (PERS-35 F7: the only LAN listener, :53443 to loopback :53090/:55173)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# A local copy, not the NFS checkout: at boot the mount can lose the race.
+# Install: cp deploy/archon/archon-gate.mjs ~/.archon/archon-gate.mjs
+# ARCHON_GATE_PEERS=<proxy host IP> lives here, out of the public repo.
+EnvironmentFile=%h/.archon/gate.env
+ExecStart=/usr/bin/node %h/.archon/archon-gate.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
