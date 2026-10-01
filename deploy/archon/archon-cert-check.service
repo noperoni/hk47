@@ -1,0 +1,15 @@
+[Unit]
+Description=Warn when the console's public certificate is 14 days from expiry (PERS-36)
+
+# The certificate is renewed by hand: Master places the DNS-01 TXT record, so a
+# missed renewal is an outage. Renew with the same command that issued it:
+#   lego run --path ~/.archon/lego -d <console host> --dns manual
+# The gate reloads the new file within a minute; no restart needed.
+# Switch to --dns-persist once Let's Encrypt offers DNS-PERSIST-01, and this
+# warning can go.
+
+[Service]
+Type=oneshot
+# ARCHON_GATE_PUBLIC_CERT lives here, out of the public repo.
+EnvironmentFile=%h/.archon/gate.env
+ExecStart=/bin/sh -c 'openssl x509 -checkend 1209600 -noout -in "$ARCHON_GATE_PUBLIC_CERT" >/dev/null || notify-send -u critical "Archon certificate" "Expires within 14 days: renew it with lego (DNS-01 by hand)."'

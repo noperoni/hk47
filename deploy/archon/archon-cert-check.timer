@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily check of the console's public certificate expiry (PERS-36)
+
+[Timer]
+OnCalendar=daily
+OnStartupSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
