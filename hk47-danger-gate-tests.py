@@ -117,6 +117,15 @@ CASES = [
     ("psql -c 'delete from users;'", "ask"),
     ("dd if=backup.img of=out.img", "ask"),
     ("umount /mnt/data", "ask"),
+    ("mount /dev/sdb1 /mnt/data", "ask"),
+    ("sudo mount -o remount,rw /", "ask"),
+    ("mount -a", "ask"),
+    ("mount -t nfs4 hq:/x /mnt/x", "ask"),
+    # mount with no source or target only lists (PERS-55)
+    ("mount", None),
+    ("mount | grep ops-center", None),
+    ("mount -t nfs4", None),
+    ("mount -l --types=nfs,nfs4", None),
 
     # --- OFF the list: privilege and disruption, Master's ruling 2026-09-11 --
     # These stop, restart or remove things without destroying Master's data,

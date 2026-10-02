@@ -1311,8 +1311,30 @@ def rule_dd_general(argv, cwd, raw):
 # its own account exactly as if it had been typed without it.
 
 
+def mount_only_lists(argv):
+    """Bare `mount`, or one filtered by `-t`/`-l`/`-v`, prints the table and changes nothing.
+
+    Anything else is a change: a source or target, `-o remount`, `-a` mounting
+    the whole fstab, or a flag this does not recognise.
+    """
+    args = argv[1:]
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-l", "--show-labels", "-v", "--verbose"):
+            i += 1
+        elif a in ("-t", "--types"):
+            i += 2
+        elif a.startswith("--types=") or (a.startswith("-t") and len(a) > 2):
+            i += 1
+        else:
+            return False
+    return True
+
+
 def rule_mount(argv, cwd, raw):
-    if base(argv) in ("mount", "umount"):
+    b = base(argv)
+    if b == "umount" or (b == "mount" and not mount_only_lists(argv)):
         return "changing what is mounted where, under processes already using it"
     return None
 
