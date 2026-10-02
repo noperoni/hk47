@@ -95,10 +95,12 @@ It follows a command off the machine. An `ssh` payload, the tail of a
 command line are all judged as though typed locally.
 
 ```sh
-ln -sfn "$PWD/hk47-danger-gate.py"        ~/.claude/hooks/hk47_danger_gate.py
-ln -sfn "$PWD/hk47-danger-gate-answer.py" ~/.claude/hooks/hk47_danger_gate_answer.py
-python3 hk47-danger-gate-tests.py   # 149 judge + 5 contract + 55 named checks
+python3 hk47-danger-gate-tests.py   # 205 judge + 5 contract + 75 named checks
+./install-hooks.sh                  # copies, not symlinks; rerun after every change
 ```
+
+The hooks are installed as copies so the gate never lives on a network share
+that can go away, or be rewritten by whoever else can write to it.
 
 Then register both in `~/.claude/settings.json`: the gate as `PreToolUse` with
 matcher `*`, and the answer companion as `PostToolUse` with matcher

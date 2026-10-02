@@ -76,11 +76,14 @@ def record_path(session):
 
 def load_redact():
     """The gate's own redact(), so the two hooks can never disagree about what a
-    credential looks like. Resolved through the symlink the hook runs from."""
+    credential looks like. Found beside the hook under its repo name, or under
+    the name install-hooks.sh gives the local copy."""
     import importlib.util
     here = os.path.dirname(os.path.realpath(__file__))
-    spec = importlib.util.spec_from_file_location(
-        "hk47_gate", os.path.join(here, "hk47-danger-gate.py"))
+    path = os.path.join(here, "hk47-danger-gate.py")
+    if not os.path.exists(path):
+        path = os.path.join(here, "hk47_danger_gate.py")
+    spec = importlib.util.spec_from_file_location("hk47_gate", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.redact
