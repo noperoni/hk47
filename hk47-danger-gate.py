@@ -329,6 +329,26 @@ def strip_heredocs(command):
     return "".join(out), bodies
 
 
+def feeds_interpreter(receiver):
+    """True when a heredoc's receiving command executes what it is fed."""
+    argv, _ = unwrap(lex(receiver))
+    return bool(argv) and os.path.basename(argv[0].strip("\"'")).lower() in INTERPRETERS
+
+
+def shell_text(command):
+    """The text a shell would actually run: heredoc DATA lifted out, bodies fed
+    to an interpreter kept.
+
+    The raw-line rules for shell syntax judged the whole command, data and all.
+    On 2026-10-03 `cat > setup.sh <<'EOF' ... >> /etc/fstab ... EOF` was refused
+    at the deny tier as an fstab overwrite, while it was only writing a script
+    for Master to read and run himself. A redirect inside data redirects nothing.
+    """
+    text, heredocs = strip_heredocs(command)
+    return "\n".join([text] + [shell_text(body) for body, receiver in heredocs
+                               if feeds_interpreter(receiver)])
+
+
 class Tok(str):
     """A token that remembers whether the shell would glob-expand it.
 
@@ -652,6 +672,16 @@ def script_bodies(argv, cwd):
     b = base(argv)
     head = argv[0].strip("\"'")
     if b in SHELL_INTERPRETERS:
+        # `bash -n x.sh` only parses the script, and refused a syntax check on
+        # 2026-10-03. Only options BEFORE the script count: after it, -n is the
+        # script's own argument and the script runs.
+        opts = []
+        for t in argv[1:]:
+            if not t.startswith("-"):
+                break
+            opts.append(t)
+        if any(not t.startswith("--") and "n" in t for t in opts):
+            return []
         candidates = [t for t in argv[1:] if not t.startswith("-")][:1]
     elif "/" in head or b.endswith(".sh"):
         candidates = [head]
@@ -708,8 +738,7 @@ def collect(command, cwd=None, depth=0, literals=True, where=None,
         # handed text, and text is not a command. The receiver is the command the
         # body is actually fed to, never whichever interpreter happens to appear
         # elsewhere on the line.
-        argv, _ = unwrap(lex(receiver))
-        if argv and os.path.basename(argv[0].strip("\"'")).lower() in INTERPRETERS:
+        if feeds_interpreter(receiver):
             found.extend(collect(body, cwd, depth + 1, literals, where))
     if depth and literals:
         # Inside an interpreter payload the text may not be shell at all:
@@ -912,6 +941,7 @@ def rule_shred(argv, cwd, raw):
 
 
 def rule_forkbomb(raw):
+    raw = shell_text(raw)
     m = re.search(r":\s*\(\s*\)\s*\{.*\|.*&.*\}\s*;?\s*:", raw)
     if m:
         return ("this is a fork bomb and the machine will need a power cycle",
@@ -920,7 +950,7 @@ def rule_forkbomb(raw):
 
 
 def rule_device_redirect(raw):
-    for target in redirect_targets(raw):
+    for target in redirect_targets(shell_text(raw)):
         if DISK_DEVICE.match(target):
             return (f"this writes over the raw device {target}", f"> {target}")
         if target in ("/etc/passwd", "/etc/shadow", "/etc/fstab", "/etc/sudoers"):
@@ -1232,8 +1262,7 @@ def pipe_to_shell(text, depth=0, literals=False, where=None):
     text, heredocs = strip_heredocs(text)
     nested = []
     for body, receiver in heredocs:
-        argv, _ = unwrap(lex(receiver))
-        if argv and os.path.basename(argv[0].strip("\"'")).lower() in INTERPRETERS:
+        if feeds_interpreter(receiver):
             nested.append((body, True, where))
     if depth and literals:
         for lit in STRING_LITERAL.findall(text):

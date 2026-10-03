@@ -269,6 +269,12 @@ CASES = [
     # but a shell really does execute what it is fed
     ("bash <<'EOF'\nrm -rf /\nEOF", "deny"),
     ("sh <<EOF\npkill -f thing\nEOF", "deny"),
+    # The raw-line redirect and fork-bomb rules read heredoc data too, until
+    # 2026-10-03 refused a setup script being WRITTEN for Master to run.
+    ("mkdir -p d && cat > d/setup.sh <<'EOF'\nset -e\necho x >> /etc/fstab\nEOF", None),
+    ("cat > fb.md <<'EOF'\n:(){ :|:& };:\nEOF", None),
+    ("bash <<'EOF'\necho x > /etc/fstab\nEOF", "deny"),
+    ("cat > /etc/fstab <<'EOF'\nUUID=x / btrfs defaults 0 0\nEOF", "deny"),
     # A script is judged line by line, found 2026-09-12. shlex treats a newline
     # as whitespace, so with ANYTHING on an earlier line these lexed into one
     # argv whose argv[0] was `ls` and whose danger sat among the arguments, where
@@ -406,6 +412,9 @@ def script_cases():
             ("bash safe.sh", None, "an ordinary script stays silent"),
             ("bash commented.sh", None, "a COMMENT is not a command"),
             ("bash missing.sh", None, "a script that is not there is no opinion"),
+            ("bash -n deploy.sh", None, "a syntax check runs nothing"),
+            ("bash -en deploy.sh", None, "-n bundled with other options"),
+            ("bash deploy.sh -n", "deny", "-n after the script is the script's own"),
             ("python3 notes.py", None, "a python file is OUT OF SCOPE, by ruling"),
             ("cat plain.txt", None, "reading a file is not running it"),
             # A shell asked to run a text file really does run it, whatever the
