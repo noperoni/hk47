@@ -1342,7 +1342,10 @@ READERS = {"cat", "tac", "less", "more", "head", "tail", "bat", "batcat", "nl",
 PASS_THROUGH = READERS | {"tr", "sort", "uniq", "column", "fold", "rev"}
 PERSONAL_SECRETS = {"FOUNDRY_RELAY_API_KEY", "OLLAMA_API_KEY", "OMNIVOICE_API_KEY",
                     "OPENROUTER_API_KEY", "PIXELLAB_API_KEY", "PLANE_API_KEY",
-                    "AK_PASSWORD", "AK_TOKEN", "AK_USER"}
+                    "AK_PASSWORD", "AK_TOKEN", "AK_USER", "AGM_FOUNDRY_PW"}
+# Kept in the keyring beside their credentials, but an address is not a secret
+# and asking Master to allow one would only teach him to click through.
+NOT_SECRET = re.compile(r"^(?:HOST|PORT)_|_EMAIL$")
 SECRET_CALL = re.compile(r"(?:^|[\s(`;|&])secret\s+[\"']?([A-Za-z0-9_]+)"
                          r"|secret-tool\s+lookup\b.*?\bkey\s+[\"']?([A-Za-z0-9_]+)")
 
@@ -1403,7 +1406,8 @@ def rule_credential_display(raw):
 def work_secrets(command):
     """Work credentials this command reads through the keyring helper."""
     names = {a or b for a, b in SECRET_CALL.findall(command)}
-    return sorted(n for n in names if n and n not in PERSONAL_SECRETS)
+    return sorted(n for n in names
+                  if n and n not in PERSONAL_SECRETS and not NOT_SECRET.search(n))
 
 
 def rule_dd_general(argv, cwd, raw):
