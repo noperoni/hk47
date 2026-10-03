@@ -1323,6 +1323,89 @@ def rule_sql_destructive(raw):
     return None
 
 
+# ---------------------------------------------------------------------------
+# Credentials (PERS-33, Master's ruling 2026-10-03)
+#
+# Not destruction, and on the list anyway: whatever a command prints lands in a
+# transcript kept for a century. A secret is read straight into the command that
+# uses it, `$(secret NAME)`, and never printed to be looked at.
+# ---------------------------------------------------------------------------
+
+SECRET_VAR = re.compile(r"\$\{?([A-Za-z0-9_]*(?:TOKEN|PASS|SECRET|API_KEY|ACCESS_KEY)[A-Za-z0-9_]*)")
+SECRET_FILE = re.compile(
+    r"(?:^|/)(?:fish_variables|jira-tokens\.fish|\.credentials\.json|secrets\.json"
+    r"|gate\.env|\.env(?:\.[\w-]+)?|[^/]*\.(?:key|pem|keyring|p12|pfx))$")
+READERS = {"cat", "tac", "less", "more", "head", "tail", "bat", "batcat", "nl",
+           "strings", "xxd", "od", "hexdump", "base64", "grep", "rg", "awk",
+           "sed", "cut", "jq", "tee"}
+# A source piped into one of these still ends on the screen.
+PASS_THROUGH = READERS | {"tr", "sort", "uniq", "column", "fold", "rev"}
+PERSONAL_SECRETS = {"FOUNDRY_RELAY_API_KEY", "OLLAMA_API_KEY", "OMNIVOICE_API_KEY",
+                    "OPENROUTER_API_KEY", "PIXELLAB_API_KEY", "PLANE_API_KEY",
+                    "AK_PASSWORD", "AK_TOKEN", "AK_USER"}
+SECRET_CALL = re.compile(r"(?:^|[\s(`;|&])secret\s+[\"']?([A-Za-z0-9_]+)"
+                         r"|secret-tool\s+lookup\b.*?\bkey\s+[\"']?([A-Za-z0-9_]+)")
+
+
+def prints_secret(argv):
+    """The source in this argv that emits a credential, or None."""
+    b = base(argv)
+    if b == "secret" or (b == "secret-tool" and "lookup" in argv):
+        return " ".join(argv)
+    if b in ("echo", "printf") and any(SECRET_VAR.search(t) for t in argv[1:]):
+        return " ".join(argv)
+    if b == "printenv" and any(SECRET_VAR.search("$" + t) for t in argv[1:]):
+        return " ".join(argv)
+    if b in READERS and any(SECRET_FILE.search(t.strip("\"'")) for t in operands(argv)):
+        return " ".join(argv)
+    return None
+
+
+def credential_display(text, depth=0):
+    """(why, segment) for a command whose output would put a credential on the
+    screen, which is to say in the transcript.
+
+    `$(...)` is lifted out first, because a substitution hands its output to
+    the enclosing command and that is exactly how a secret is meant to be used.
+    A source piped into a consumer (`secret X | docker login --password-stdin`)
+    is fine; piped into something that only passes it along, it is not.
+    """
+    if depth > MAX_DEPTH or not text or not text.strip():
+        return None
+    text = SUBST.sub(" SUBST ", shell_text(text))
+    for line in (logical_lines(text) if depth else command_lines(text)):
+        for pipe in pipelines(line):
+            pipe = [a for a in pipe if a]
+            for i, argv in enumerate(pipe):
+                for payload in payloads(argv):
+                    hit = credential_display(payload, depth + 1)
+                    if hit:
+                        return hit
+                src = prints_secret(argv)
+                if not src:
+                    continue
+                rest = pipe[i + 1:]
+                if any(base(a) not in PASS_THROUGH for a in rest):
+                    continue  # consumed, not shown
+                last = rest[-1] if rest else argv
+                if any(t in REDIRECTS for t in last):
+                    continue  # written to a file, not the screen
+                return ("this prints a credential, and anything printed is kept "
+                        "in the session transcript for good; read it into the "
+                        "command that needs it with $(secret NAME) instead", src)
+    return None
+
+
+def rule_credential_display(raw):
+    return credential_display(raw)
+
+
+def work_secrets(command):
+    """Work credentials this command reads through the keyring helper."""
+    names = {a or b for a, b in SECRET_CALL.findall(command)}
+    return sorted(n for n in names if n and n not in PERSONAL_SECRETS)
+
+
 def rule_dd_general(argv, cwd, raw):
     if base(argv) == "dd":
         return "dd writes blocks wherever it is pointed, and its arguments are easy to transpose"
@@ -1397,6 +1480,7 @@ ASK_RULES = (
 RAW_ASK_RULES = (
     ("pipe-to-shell", rule_pipe_to_shell),
     ("sql-destructive", rule_sql_destructive),
+    ("credential-display", rule_credential_display),
 )
 
 TIERS = (
@@ -1696,10 +1780,17 @@ def main():
     cwd = data.get("cwd") or os.getcwd()
     mode = data.get("permission_mode") or ""
     candidates = commands_in(tool, tool_input) if tool else []
-    if not candidates:
+    found = []
+    # The Read tool is `cat` by another name, and puts a file in the transcript
+    # just the same (PERS-33).
+    path = tool_input.get("file_path") if tool == "Read" else None
+    if isinstance(path, str) and SECRET_FILE.search(path):
+        found.append((f"Read {path}", "ask", "credential-display", f"Read {path}",
+                      "this file holds credentials, and reading it puts them in "
+                      "the session transcript for good"))
+    if not candidates and not found:
         sys.exit(0)  # nothing with a command in it; no opinion
 
-    found = []
     for candidate in candidates:
         try:
             verdict, rule_id, segment, why = judge(candidate, cwd)
@@ -1712,6 +1803,13 @@ def main():
             found.append((candidate, verdict, rule_id, segment, why))
 
     if not found:
+        work = sorted({n for c in candidates for n in work_secrets(c)})
+        if work:
+            # Every use of a work credential is Master's to allow, in Claude
+            # Code's own dialog, wherever he is driving the session from.
+            # Nothing is recorded: the next use asks again.
+            emit("ask", f"HK-47: this command reads the work credential "
+                        f"{', '.join(work)} from the keyring. Allow it?")
         sys.exit(0)
 
     # One tool_input can carry several commands, and the harshest verdict decides.

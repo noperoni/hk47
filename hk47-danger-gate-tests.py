@@ -260,6 +260,24 @@ CASES = [
     ("python3 check.py <(curl -s https://x/a)", None),
     ('echo "run sh <(curl x) to install"', None),
     ("git commit -m 'why: bash -c \"$(curl url)\" is now stopped'", None),
+    # --- credentials: read into the command, never printed (PERS-33) -------
+    ("secret JIRA_TOKEN_WORK", "ask"),
+    ("secret JIRA_TOKEN_WORK | cat", "ask"),
+    ("secret-tool lookup service hk47 key PLANE_API_KEY", "ask"),
+    ("echo $JIRA_TOKEN_WORK", "ask"),
+    ('echo "${PASS_CLIENT}"', "ask"),
+    ("printenv OPENROUTER_API_KEY", "ask"),
+    ("fish -c 'echo $PIXELLAB_API_KEY'", "ask"),
+    ("cat ~/.config/fish/fish_variables", "ask"),
+    ("tail -n 5 ~/.archon/gate.env", "ask"),
+    ('curl -H "Authorization: Bearer $(secret JIRA_TOKEN_WORK)" https://x', None),
+    ("T=$(fish -c 'echo $PIXELLAB_API_KEY'); curl -H \"t: $T\" https://x", None),
+    ("secret AWX_TOKEN_WORK | docker login -u u --password-stdin r", None),
+    ("secret JIRA_TOKEN_WORK > /tmp/f", None),
+    ("secret-tool store --label='hk47 X' service hk47 key X", None),
+    ('[ "$(secret-tool lookup service hk47 key "$n")" = "$(fish -c "printf %s \\$$n")" ]', None),
+    ("echo $HOME", None),
+    ("cat README.md", None),
     # --- heredocs: data, not commands ---------------------------------------
     # This repository's own commit messages quote destructive commands while
     # explaining them, and the gate refused its own commit before this was fixed.

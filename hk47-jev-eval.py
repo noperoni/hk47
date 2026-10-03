@@ -360,11 +360,9 @@ def cmd_label(args):
 
 
 def api_key():
-    key = os.environ.get("OPENROUTER_API_KEY")
+    key = subprocess.run(["secret", "OPENROUTER_API_KEY"], capture_output=True, text=True).stdout
     if not key:
-        key = subprocess.run(["fish", "-c", "echo $OPENROUTER_API_KEY"], capture_output=True, text=True).stdout.strip()
-    if not key:
-        sys.exit("OPENROUTER_API_KEY not found in the environment or fish universal vars.")
+        sys.exit("OPENROUTER_API_KEY not found in the keyring: secret-tool store --label='hk47 OPENROUTER_API_KEY' service hk47 key OPENROUTER_API_KEY")
     return key
 
 

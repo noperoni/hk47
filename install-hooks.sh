@@ -17,4 +17,8 @@ hk47-danger-gate.py hk47_danger_gate.py
 hk47-danger-gate-answer.py hk47_danger_gate_answer.py
 hk47-persona-reminder.py persona_reminder.py
 companion/contrib/hk47-badge-hook.py hk47_badge.py
+hk47-redact.py hk47_redact.py
 EOF
+# The keyring helper every skill reads credentials through (PERS-33).
+install -D -m 755 hk47-secret "$HOME/.local/bin/secret"
+echo "installed secret"

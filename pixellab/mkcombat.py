@@ -11,7 +11,7 @@ import requests
 from PIL import Image
 
 API = "https://api.pixellab.ai/v2"
-T = os.popen("fish -c 'echo $PIXELLAB_API_KEY'").read().strip()
+T = os.popen("secret PIXELLAB_API_KEY").read()
 H = {"Authorization": f"Bearer {T}", "Content-Type": "application/json"}
 ROOT = Path(__file__).resolve().parent.parent
 TMP = Path(os.environ.get("HK47_TMP") or ROOT / "tmp-out")
